@@ -19,12 +19,12 @@ job_name: "[{{ instanceid|default('AKS')}}] {{ node.id }} {{ node.name }} {{ nod
 priority: high
 timeouts:
   action:
-    minutes: 10
+    minutes: 15
   actions:
     power-off:
       seconds: 30
   job:
-    minutes: 30
+    minutes: 60
   queue:
     days: 2
 visibility: public

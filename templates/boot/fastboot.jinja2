@@ -45,7 +45,7 @@
       boot:
         url: 'downloads://boot.img'
     timeout:
-      minutes: 2
+      minutes: 5
     to: download
 
 - boot:
@@ -53,10 +53,10 @@
     - 'root@[^:]+:~# '
     failure_retry: 3
     timeout:
-      minutes: 10
+      minutes: 15
     timeouts:
       bootloader-commands:
-        minutes: 3
+        minutes: 10
       auto-login-action:
         minutes: 10
     method: fastboot

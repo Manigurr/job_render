@@ -18,20 +18,21 @@
         - mkdir -p extracted
         - tar -xf {{ flash_name }} -C extracted
         - cp {{ rootfs_name }} extracted/rootfs.img
-        - cp overlay*.tar.gz extracted/overlay.tar.gz
+        - cp overlay*.tar.gz overlay.tar.gz
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
+        - tar -cf combined_flash.tar -C extracted .
     timeout:
       minutes: 120
     to: downloads
 - deploy:
     images:
       image:
-        url: 'downloads://extracted'
+        url: 'downloads://combined_flash.tar'
       settings:
         url: downloads://flash.settings
       overlay:
@@ -57,6 +58,3 @@
       auto-login-action:
         minutes: 10
     method: minimal
-
-
-    

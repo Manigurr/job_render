@@ -1,12 +1,18 @@
 - deploy:
     images:
-      image:
+      flash_files:
         url: '{{ node.artifacts.flash_image }}'
+      rootfs_image:
+        url: '{{ node.artifacts.rootfs_image }}'
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
         - export IMAGE_PATH=$PWD
+        - mkdir -p extracted
+        - tar -xf flash_files -C extracted
+        - cp rootfs_image extracted/rootfs.img
+        - cd extracted
         - cp overlay*.tar.gz overlay.tar.gz
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
@@ -17,13 +23,10 @@
     timeout:
       minutes: 120
     to: downloads
-{% set flash_image_url = node.artifacts.flash_image %}
-{% set flash_image_path = flash_image_url.split('?')[0] %}
-{% set flash_image_name = flash_image_path.split('/')[-1] %}
 - deploy:
     images:
       image:
-        url: 'downloads://{{ flash_image_name }}'
+        url: 'downloads://extracted/flash.settings'
       settings:
         url: downloads://flash.settings
       overlay:

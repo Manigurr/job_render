@@ -18,8 +18,7 @@
         - mkdir -p extracted
         - tar -xf {{ flash_name }} -C extracted
         - cp {{ rootfs_name }} extracted/rootfs.img
-        - cd extracted
-        - cp overlay*.tar.gz overlay.tar.gz
+        - cp overlay*.tar.gz extracted/overlay.tar.gz
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
@@ -32,7 +31,7 @@
 - deploy:
     images:
       image:
-        url: 'downloads://{{ flash_name }}'
+        url: 'downloads://extracted'
       settings:
         url: downloads://flash.settings
       overlay:

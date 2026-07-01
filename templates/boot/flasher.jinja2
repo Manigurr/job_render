@@ -15,7 +15,8 @@
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
     timeout:
-     minutes: 30
+      minutes: 120
+    retries: 3
     to: downloads
 {% set flash_image_url = node.artifacts.flash_image %}
 {% set flash_image_path = flash_image_url.split('?')[0] %}
@@ -29,7 +30,7 @@
       overlay:
         url: downloads://overlay.tar.gz
     timeout:
-       minutes: 10
+      minutes: 10
     to: flasher
 - boot:
     auto_login:

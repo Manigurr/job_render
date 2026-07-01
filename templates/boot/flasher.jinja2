@@ -1,4 +1,5 @@
 - deploy:
+    retries: 3
     images:
       image:
         url: '{{ node.artifacts.flash_image }}'
@@ -16,7 +17,6 @@
         - cat $IMAGE_PATH/flash.settings
     timeout:
       minutes: 120
-    retries: 3
     to: downloads
 {% set flash_image_url = node.artifacts.flash_image %}
 {% set flash_image_path = flash_image_url.split('?')[0] %}

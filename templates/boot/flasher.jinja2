@@ -47,8 +47,8 @@
       password_prompt: Password
       password: oelinux123
     prompts:
-    - root@{{ platform_config.name }}
     - root@(.*):[/~]#
+    - root@(.*):\s*[#$]\s*
     failure_retry: 3
     timeout:
       minutes: 10

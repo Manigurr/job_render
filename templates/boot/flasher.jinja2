@@ -48,8 +48,7 @@
       password: oelinux123
     prompts:
     - root@(.*):[/~]#
-    - '/ #'
-    - '\$\s*$'
+    - root@(.*):\s*[#$]\s*
     failure_retry: 3
     timeout:
       minutes: 20
@@ -59,3 +58,8 @@
       auto-login-action:
         minutes: 20
     method: minimal
+
+
+    - root@(.*):[/~]#
+    - '/ #'
+    - '\$\s*$'

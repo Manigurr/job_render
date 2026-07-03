@@ -42,13 +42,12 @@
     to: flasher
 - boot:
     auto_login:
-      login_prompt: 'login:'
+      login_prompt: '(.*)login:'
       username: root
       password_prompt: Password
       password: oelinux123
     prompts:
     - root@(.*):[/~]#
-    - root@(.*):\s*[#$]\s*
     failure_retry: 3
     timeout:
       minutes: 20

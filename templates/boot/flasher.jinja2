@@ -7,7 +7,7 @@
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
         - export IMAGE_PATH=$PWD
-        - cp overlay*.tar.gz overlay.tar.gz
+        - mv overlay*.tar.gz overlay.tar.gz
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings

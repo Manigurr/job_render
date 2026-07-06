@@ -17,7 +17,8 @@
         - export IMAGE_PATH=$PWD
         - mkdir -p flash_content
         - tar -xf {{ flash_name }} -C flash_content
-        - cp {{ rootfs_name }} flash_content/rootfs.img
+        - rm {{ flash_name }}
+        - mv {{ rootfs_name }} flash_content/rootfs.img
         - cp overlay*.tar.gz overlay.tar.gz
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
@@ -26,6 +27,7 @@
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
         - tar -cf combined_flash.tar -C flash_content .
+        - rm -rf flash_content
     timeout:
       minutes: 120
     to: downloads

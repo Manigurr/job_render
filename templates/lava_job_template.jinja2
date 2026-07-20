@@ -1,5 +1,6 @@
-{% set boot_template         = 'boot/'     + platform_config.boot_method + '.jinja2' %}
-{% set boot_overlay_template = 'overlays/' + test_method                 + '.jinja2' %}
+actions:
+{% set boot_template = 'boot/' + platform_config.boot_method + '.jinja2' %}
+{% set boot_overlay_template = 'overlays/' + test_method + '.jinja2' %}
 {% include boot_overlay_template %}
 {% if tests_count %}
 - test:
@@ -7,14 +8,14 @@
       minutes: 20
     definitions:
     {% for test in node.tests %}
-    - repository: "{{ test.repository }}"
-      from:       "{{ test.from }}"
-      path:       {{ test.path }}
-      name:       "{{ test.name }}"
+    - repository: "{{test.repository}}"
+      from: "{{test.from}}"
+      path: {{test.path}}
+      name: "{{test.name}}"
     {% endfor %}
 {% endif %}
 device_type: {{ platform_config.name }}
-job_name: "[{{ instanceid|default('AKS') }}] {{ node.id }} {{ node.name }} {{ node.data.kernel_revision.describe }}"
+job_name: "[{{ instanceid|default('AKS')}}] {{ node.id }} {{ node.name }} {{ node.data.kernel_revision.describe }}"
 priority: high
 timeouts:
   action:
@@ -23,22 +24,11 @@ timeouts:
     power-off:
       seconds: 30
     minimal-boot:
-      # covers full boot pipeline for large rootfs images (7-8 GB)
       minutes: 60
-    # FIX-7: explicit auto-login-action + login-action at job level.
-    #         Without these the global action cap (15 min) overrides the
-    #         per-boot timeouts, causing premature login-action timeouts
-    #         (observed: 357 s on sm8750-mtp, 283 s on rb3gen2).
     auto-login-action:
-      minutes: 25
-    login-action:
       minutes: 20
   job:
     minutes: 240
   queue:
     days: 2
-# FIX-8: job-level failure_retry so transient boot failures (power glitch,
-#         slow first-boot) automatically retry instead of marking Incomplete.
-#         This was previously placed inside the boot block where it is ignored.
-failure_retry: 2
 visibility: public

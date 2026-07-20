@@ -8,47 +8,26 @@
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
-{% set flash_url  = node.artifacts.flash_image %}
+{% set flash_url = node.artifacts.flash_image %}
 {% set flash_path = flash_url.split('?')[0] %}
 {% set flash_name = flash_path.split('/')[-1] %}
-{% set rootfs_url  = node.artifacts.rootfs_image %}
+{% set rootfs_url = node.artifacts.rootfs_image %}
 {% set rootfs_path = rootfs_url.split('?')[0] %}
 {% set rootfs_name = rootfs_path.split('/')[-1] %}
-          # FIX-1: hardcoded workdir — $PWD is fragile inside docker --workdir
-          - export IMAGE_PATH=/lava-downloads
-          - mkdir -p flash_content
-          - tar -xf {{ flash_name }} -C flash_content
-          - rm {{ flash_name }}
-          - mv {{ rootfs_name }} flash_content/rootfs.img
-          - cp overlay*.tar.gz overlay.tar.gz
-          - echo "OVERLAY=overlay.tar.gz"        >> $IMAGE_PATH/flash.settings
-          - echo "OVERLAY_PATH=/"                >> $IMAGE_PATH/flash.settings
-          - echo "ROOTFS_IMAGE=rootfs.img"       >> $IMAGE_PATH/flash.settings
-          - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
-          - echo "PORT=0"                        >> $IMAGE_PATH/flash.settings
-          # FIX-2: inject STORAGE + PROGRAMMER per device name.
-          #         These are required by flash-universal.sh for Firehose flashing.
-          #         Without them the script falls back to a raw dd copy (as seen in
-          #         job #170106 / rb3gen2-core-kit: 9.3 GB dd in 2.6 s → corrupt UFS).
-{% if platform_config.name == 'sm8750-mtp' %}
-          - echo "STORAGE=ufs"                             >> $IMAGE_PATH/flash.settings
-          - echo "PROGRAMMER=xbl_s_devprg_ns.melf"        >> $IMAGE_PATH/flash.settings
-{% elif platform_config.name == 'rb3gen2-core-kit' %}
-          - echo "STORAGE=ufs"                             >> $IMAGE_PATH/flash.settings
-          - echo "PROGRAMMER=xbl_s_devprg_ns.melf"        >> $IMAGE_PATH/flash.settings
-{% else %}
-          # FIX-2b: fallback for any future platform that still has these fields
-          # in its platform_config — avoids dd fallback for new targets too.
-{% if platform_config.storage is defined %}
-          - echo "STORAGE={{ platform_config.storage }}"   >> $IMAGE_PATH/flash.settings
-{% endif %}
-{% if platform_config.programmer is defined %}
-          - echo "PROGRAMMER={{ platform_config.programmer }}" >> $IMAGE_PATH/flash.settings
-{% endif %}
-{% endif %}
-          - cat $IMAGE_PATH/flash.settings
-          - tar -cf combined_flash.tar -C flash_content .
-          - rm -rf flash_content
+        - export IMAGE_PATH=$PWD
+        - mkdir -p flash_content
+        - tar -xf {{ flash_name }} -C flash_content
+        - rm {{ flash_name }}
+        - mv {{ rootfs_name }} flash_content/rootfs.img
+        - cp overlay*.tar.gz overlay.tar.gz
+        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
+        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
+        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
+        - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
+        - echo "PORT=0" >> $IMAGE_PATH/flash.settings
+        - cat $IMAGE_PATH/flash.settings
+        - tar -cf combined_flash.tar -C flash_content .
+        - rm -rf flash_content
     timeout:
       minutes: 120
     to: downloads
@@ -67,29 +46,16 @@
     auto_login:
       login_prompt: '(.*)login:'
       username: root
-      # FIX-3: added colon — real PAM prompt is "Password:" not "Password"
-      password_prompt: 'Password:'
+      password_prompt: Password
       password: oelinux123
     prompts:
-      - 'root@(.*):[/~]#'
-      # FIX-4: extra prompts so LAVA doesn't wait silently on stalled boots
-      - 'Linux version [0-9]'
-      - 'Welcome to'
-      - 'login:'
-    # NOTE: failure_retry removed from here — it is not a valid boot-action key
-    #       and was silently ignored. Retry is now at job level in lava_template_actions.
+    - root@(.*):[/~]#
+    failure_retry: 3
     timeout:
-      # FIX-5: increased from 20 → 30 min. A 7-8 GB rootfs first-boot
-      #         (fsck + systemd first-boot init + overlay extract) routinely
-      #         exceeds the old 20 min budget (seen: 357 s on sm8750, 283 s on rb3gen2).
-      minutes: 30
+      minutes: 20
     timeouts:
       bootloader-commands:
         minutes: 5
       auto-login-action:
-        minutes: 25
-      # FIX-6: explicit login-action budget prevents it from being starved
-      #         by earlier boot sub-steps consuming the parent timeout.
-      login-action:
         minutes: 20
     method: minimal

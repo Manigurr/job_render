@@ -41,19 +41,26 @@
     to: flasher
 - boot:
     auto_login:
-      login_prompt: 'login:'
+      login_prompt: '(.*)login:'
       username: root
       password_prompt: Password
       password: oelinux123
+
     prompts:
-    - root@{{ platform_config.name }}
-    - root@(.*):[/~]#
+{% if platform_config.name == "kodiak" %}
+      - 'root/ #'
+      - '/ #'
+      - 'root@(.*):[/~]#'
+{% else %}
+      - 'root@(.*):[/~]#'
+{% endif %}
+
     failure_retry: 3
     timeout:
-      minutes: 10
+      minutes: 20
     timeouts:
       bootloader-commands:
-        minutes: 3
+        minutes: 5
       auto-login-action:
-        minutes: 10
+        minutes: 20
     method: minimal

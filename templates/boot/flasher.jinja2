@@ -15,8 +15,7 @@
 {% set rootfs_path = rootfs_url.split('?')[0] %}
 {% set rootfs_name = rootfs_path.split('/')[-1] %}
         - export IMAGE_PATH=$PWD
-        - echo "DEBUG platform={{ platform_config.name }}" 
-        - echo "DEBUG flash={{ flash_name }}"
+        - echo "DEBUG platform={{ platform_config.name }}"
         - echo "DEBUG rootfs={{ rootfs_name }}"
         - ls -lh $IMAGE_PATH/
         - mkdir -p flash_content
@@ -24,20 +23,22 @@
         - rm {{ flash_name }}
         - mv {{ rootfs_name }} flash_content/rootfs.img
         - cp overlay*.tar.gz overlay.tar.gz
-        - mkdir -p /mnt/rootfs
-        - mount -o loop flash_content/rootfs.img /mnt/rootfs || true
-        - tar -xzf overlay.tar.gz -C /mnt/rootfs/ || true
+{% if 'rb3gen2' in platform_config.name or 'kodiak' in platform_config.name or 'pakala' in platform_config.name %}
+        - echo "Injecting LAVA overlay directly into rootfs for Kodiak platform"
+        - mkdir -p /mnt/rootfs_inject
+        - mount -o loop flash_content/rootfs.img /mnt/rootfs_inject
+        - tar -xzf overlay.tar.gz -C /mnt/rootfs_inject/ || true
+        - ls /mnt/rootfs_inject/ || true
         - sync
-        - umount /mnt/rootfs || true
+        - umount /mnt/rootfs_inject
+        - rmdir /mnt/rootfs_inject
+        - echo "LAVA overlay injection complete"
+{% endif %}
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
-{% if 'rb3gen2' in platform_config.name or 'kodiak' in platform_config.name or 'pakala' in platform_config.name %}
-        - echo "STORAGE=ufs" >> $IMAGE_PATH/flash.settings
-        - echo "PROGRAMMER={{ platform_config.programmer | default('qcom_mbn') }}" >> $IMAGE_PATH/flash.settings
-{% endif %}
         - cat $IMAGE_PATH/flash.settings
         - tar -cf combined_flash.tar -C flash_content .
         - rm -rf flash_content

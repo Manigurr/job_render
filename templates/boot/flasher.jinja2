@@ -25,7 +25,7 @@
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
-{% if platform_config.name in ['rb3gen2', 'kodiak', 'pakala'] %}
+{% if 'rb3gen2' in platform_config.name or 'kodiak' in platform_config.name or 'pakala' in platform_config.name %}
         - echo "STORAGE=ufs" >> $IMAGE_PATH/flash.settings
         - echo "PROGRAMMER={{ platform_config.programmer | default('qcom_mbn') }}" >> $IMAGE_PATH/flash.settings
 {% endif %}

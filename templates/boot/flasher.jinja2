@@ -4,6 +4,7 @@
         url: '{{ node.artifacts.flash_image }}'
       rootfs_img:
         url: '{{ node.artifacts.rootfs_image }}'
+
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
@@ -14,69 +15,45 @@
 {% set rootfs_url = node.artifacts.rootfs_image %}
 {% set rootfs_path = rootfs_url.split('?')[0] %}
 {% set rootfs_name = rootfs_path.split('/')[-1] %}
-        - export IMAGE_PATH=$PWD
-        - echo "DEBUG platform={{ platform_config.name }}"
-        - echo "DEBUG flash={{ flash_name }}"
-        - echo "DEBUG rootfs={{ rootfs_name }}"
-        - ls -lh $IMAGE_PATH/
-        - mkdir -p flash_content
-        - tar -xf {{ flash_name }} -C flash_content
-        - rm {{ flash_name }}
-        - mv {{ rootfs_name }} flash_content/rootfs.img
-        - ls -lh flash_content/
-        - cp overlay*.tar.gz overlay.tar.gz
-{% if 'rb3gen2' in platform_config.name or 'kodiak' in platform_config.name or 'pakala' in platform_config.name %}
-        - echo "Patching rawprogram XML to include rootfs for Kodiak"
-        - |
-          python3 - <<'EOF'
-          import glob, xml.etree.ElementTree as ET, os
-          xmls = glob.glob('flash_content/rawprogram*.xml')
-          if not xmls:
-              print('WARNING: No rawprogram*.xml found in flash_content/')
-          for xml_path in xmls:
-              print(f'Processing {xml_path}')
-              tree = ET.parse(xml_path)
-              root = tree.getroot()
-              existing = [p.get('label','') for p in root.findall('program')]
-              print(f'Existing labels: {existing}')
-              if 'rootfs' not in existing:
-                  prog = ET.SubElement(root, 'program')
-                  prog.set('SECTOR_SIZE_IN_BYTES', '4096')
-                  prog.set('filename', 'rootfs.img')
-                  prog.set('label', 'rootfs')
-                  prog.set('num_partition_sectors', '0')
-                  prog.set('partofsingleimage', 'false')
-                  prog.set('physical_partition_number', '0')
-                  prog.set('readbackverify', 'false')
-                  prog.set('size_in_KB', '0')
-                  prog.set('sparse', 'true')
-                  prog.set('start_byte_hex', '0x0')
-                  prog.set('start_sector', 'NUM_DISK_SECTORS')
-                  tree.write(xml_path)
-                  print(f'Patched {xml_path} to include rootfs.img')
-              else:
-                  print(f'rootfs already listed in {xml_path}')
-          EOF
-        - echo "=== rawprogram XML after patch ==="
-        - grep -i "rootfs" flash_content/rawprogram*.xml || echo "WARNING: rootfs not found in XML after patch"
-        - echo "ROOTFS_PARTITION=rootfs" >> $IMAGE_PATH/flash.settings
-{% endif %}
-        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
-        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
-        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
-        - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
-        - echo "PORT=0" >> $IMAGE_PATH/flash.settings
-        - echo "=== Final flash.settings ==="
-        - cat $IMAGE_PATH/flash.settings
-        - tar -cf combined_flash.tar -C flash_content .
-        - rm -rf flash_content
+        - 'set -e'
+        - 'export IMAGE_PATH=$PWD'
+        - 'echo "DEBUG: platform={{ platform_config.name }}"'
+        - 'echo "DEBUG: flash image={{ flash_name }}"'
+        - 'echo "DEBUG: rootfs image={{ rootfs_name }}"'
+        - 'echo "=== Downloaded files ==="'
+        - 'ls -lh "$IMAGE_PATH"'
+        - 'mkdir -p flash_content'
+        - 'tar -xf "{{ flash_name }}" -C flash_content'
+        - 'rm -f "{{ flash_name }}"'
+        - 'mv "{{ rootfs_name }}" flash_content/rootfs.img'
+        - 'echo "=== Flash content before packaging ==="'
+        - 'ls -lh flash_content'
+        - 'test -f flash_content/rootfs.img'
+        - 'echo "=== Rootfs image ==="'
+        - 'ls -lh flash_content/rootfs.img'
+        - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" ! -name "overlay.tar.gz" -print -quit)"'
+        - 'test -n "$overlay_file"'
+        - 'cp "$overlay_file" "$IMAGE_PATH/overlay.tar.gz"'
+        - 'echo "Selected overlay: $overlay_file"'
+        - 'echo "OVERLAY=overlay.tar.gz" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "ROOTFS_IMAGE=rootfs.img" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "PORT=0" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "=== flash.settings ==="'
+        - 'cat "$IMAGE_PATH/flash.settings"'
+        - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C flash_content .'
+        - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
+        - 'rm -rf flash_content'
+
     timeout:
       minutes: 120
     to: downloads
+
 - deploy:
     images:
       image:
-        url: 'downloads://combined_flash.tar'
+        url: downloads://combined_flash.tar
       settings:
         url: downloads://flash.settings
       overlay:
@@ -84,20 +61,26 @@
     timeout:
       minutes: 10
     to: flasher
+
 - boot:
     auto_login:
       login_prompt: '(.*)login:'
       username: root
       password_prompt: Password
       password: oelinux123
+
     prompts:
-    - root@(.*):[/~]#
+      - 'root@(.*):[/~]#'
+
     failure_retry: 3
+
     timeout:
       minutes: 20
+
     timeouts:
       bootloader-commands:
         minutes: 5
       auto-login-action:
         minutes: 20
+
     method: minimal

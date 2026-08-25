@@ -25,6 +25,10 @@
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
+{% if platform_config.name in ['rb3gen2', 'kodiak', 'pakala'] %}
+        - echo "STORAGE=ufs" >> $IMAGE_PATH/flash.settings
+        - echo "PROGRAMMER={{ platform_config.programmer | default('qcom_mbn') }}" >> $IMAGE_PATH/flash.settings
+{% endif %}
         - cat $IMAGE_PATH/flash.settings
         - tar -cf combined_flash.tar -C flash_content .
         - rm -rf flash_content

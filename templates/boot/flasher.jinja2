@@ -15,11 +15,20 @@
 {% set rootfs_path = rootfs_url.split('?')[0] %}
 {% set rootfs_name = rootfs_path.split('/')[-1] %}
         - export IMAGE_PATH=$PWD
+        - echo "DEBUG platform={{ platform_config.name }}" 
+        - echo "DEBUG flash={{ flash_name }}"
+        - echo "DEBUG rootfs={{ rootfs_name }}"
+        - ls -lh $IMAGE_PATH/
         - mkdir -p flash_content
         - tar -xf {{ flash_name }} -C flash_content
         - rm {{ flash_name }}
         - mv {{ rootfs_name }} flash_content/rootfs.img
         - cp overlay*.tar.gz overlay.tar.gz
+        - mkdir -p /mnt/rootfs
+        - mount -o loop flash_content/rootfs.img /mnt/rootfs || true
+        - tar -xzf overlay.tar.gz -C /mnt/rootfs/ || true
+        - sync
+        - umount /mnt/rootfs || true
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
         - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings

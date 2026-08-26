@@ -2,8 +2,6 @@
     images:
       flash_files:
         url: '{{ node.artifacts.flash_image }}'
-      rootfs_img:
-        url: '{{ node.artifacts.rootfs_image }}'
 
     postprocess:
       docker:
@@ -12,38 +10,47 @@
 {% set flash_url = node.artifacts.flash_image %}
 {% set flash_path = flash_url.split('?')[0] %}
 {% set flash_name = flash_path.split('/')[-1] %}
-{% set rootfs_url = node.artifacts.rootfs_image %}
-{% set rootfs_path = rootfs_url.split('?')[0] %}
-{% set rootfs_name = rootfs_path.split('/')[-1] %}
         - 'set -e'
         - 'export IMAGE_PATH=$PWD'
         - 'echo "DEBUG: platform={{ platform_config.name }}"'
         - 'echo "DEBUG: flash image={{ flash_name }}"'
-        - 'echo "DEBUG: rootfs image={{ rootfs_name }}"'
         - 'echo "=== Downloaded files ==="'
         - 'ls -lh "$IMAGE_PATH"'
+
         - 'mkdir -p flash_content'
         - 'tar -xf "{{ flash_name }}" -C flash_content'
         - 'rm -f "{{ flash_name }}"'
-        - 'mv "{{ rootfs_name }}" flash_content/rootfs.img'
-        - 'echo "=== Flash content before packaging ==="'
+
+        - 'echo "=== Flash content extracted from complete qcomflash package ==="'
         - 'ls -lh flash_content'
+        - 'echo "=== Rootfs candidates inside flash_content ==="'
+        - 'find flash_content -maxdepth 3 -type f \( -iname "*rootfs*" -o -iname "*.img" \) -ls || true'
+
         - 'test -f flash_content/rootfs.img'
-        - 'echo "=== Rootfs image ==="'
-        - 'ls -lh flash_content/rootfs.img'
+        - 'echo "Confirmed rootfs.img exists inside complete flash package"'
+
+        - 'echo "=== rawprogram rootfs references ==="'
+        - 'grep -Rni "rootfs.img\|label=\"rootfs\"\|label='\''rootfs'\''" flash_content || true'
+
         - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" ! -name "overlay.tar.gz" -print -quit)"'
         - 'test -n "$overlay_file"'
         - 'cp "$overlay_file" "$IMAGE_PATH/overlay.tar.gz"'
         - 'echo "Selected overlay: $overlay_file"'
+
         - 'echo "OVERLAY=overlay.tar.gz" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "ROOTFS_IMAGE=rootfs.img" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "PORT=0" >> "$IMAGE_PATH/flash.settings"'
+
         - 'echo "=== flash.settings ==="'
         - 'cat "$IMAGE_PATH/flash.settings"'
+
         - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C flash_content .'
         - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
+        - 'echo "=== Verify combined_flash.tar contains rootfs.img ==="'
+        - 'tar -tf "$IMAGE_PATH/combined_flash.tar" | grep -E "rootfs.img$"'
+
         - 'rm -rf flash_content'
 
     timeout:
@@ -58,6 +65,7 @@
         url: downloads://flash.settings
       overlay:
         url: downloads://overlay.tar.gz
+
     timeout:
       minutes: 10
     to: flasher

@@ -17,38 +17,34 @@
         - 'echo "DEBUG: flash image={{ flash_name }}"'
         - 'echo "=== Downloaded files ==="'
         - 'ls -lh "$IMAGE_PATH"'
+
         - 'mkdir -p flash_content'
         - 'tar -xf "{{ flash_name }}" -C flash_content'
         - 'rm -f "{{ flash_name }}"'
+
         - 'echo "=== Complete qcomflash contents ==="'
         - 'find flash_content -maxdepth 2 -type f -print | sort'
         - 'test -f flash_content/rootfs.img'
-        - 'echo "Confirmed rootfs.img present"'
+        - 'echo "Confirmed rootfs.img exists inside complete qcomflash package"'
+
         - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" ! -name "overlay.tar.gz" -print -quit)"'
         - 'test -n "$overlay_file"'
         - 'cp "$overlay_file" "$IMAGE_PATH/overlay.tar.gz"'
         - 'echo "Selected overlay: $overlay_file"'
-        - 'echo "=== Injecting LAVA overlay into rootfs.img using fuse2fs ==="'
-        - 'mkdir -p /mnt/rootfs_inject'
-        - 'fuse2fs flash_content/rootfs.img /mnt/rootfs_inject -o fakeroot,ro_fallback'
-        - 'echo "=== rootfs mount successful ==="'
-        - 'df -h /mnt/rootfs_inject'
-        - 'tar -xzf "$IMAGE_PATH/overlay.tar.gz" -C /mnt/rootfs_inject/'
-        - 'echo "=== Verifying overlay injection ==="'
-        - 'ls /mnt/rootfs_inject/ | head -20'
-        - 'sync'
-        - 'fusermount -u /mnt/rootfs_inject || umount /mnt/rootfs_inject || true'
-        - 'rmdir /mnt/rootfs_inject || true'
-        - 'echo "LAVA overlay injected successfully"'
+
         - 'echo "OVERLAY=overlay.tar.gz" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "PORT=0" >> "$IMAGE_PATH/flash.settings"'
+
         - 'echo "=== flash.settings ==="'
         - 'cat "$IMAGE_PATH/flash.settings"'
+
+        - 'echo "=== Creating combined flash archive ==="'
         - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C flash_content .'
         - 'test -f "$IMAGE_PATH/combined_flash.tar"'
         - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
+
         - 'rm -rf flash_content'
 
     timeout:
@@ -63,6 +59,7 @@
         url: downloads://flash.settings
       overlay:
         url: downloads://overlay.tar.gz
+
     timeout:
       minutes: 10
     to: flasher

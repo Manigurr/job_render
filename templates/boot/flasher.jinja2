@@ -29,8 +29,10 @@
         - 'echo "=== Complete qcomflash contents ==="'
         - 'find flash_content -maxdepth 3 -type f -print | sort'
 
+        - 'echo "=== Validating rootfs.img ==="'
         - 'test -f flash_content/rootfs.img'
         - 'echo "Confirmed rootfs.img exists inside complete qcomflash package"'
+        - 'ls -lh flash_content/rootfs.img'
 
         - 'echo "=== Locating LAVA overlay ==="'
         - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" ! -name "overlay.tar.gz" -print -quit)"'
@@ -40,36 +42,22 @@
         - 'echo "=== LAVA overlay contents ==="'
         - 'tar -tzf "$overlay_file" | head -100'
 
-        - 'echo "=== Mounting rootfs.img ==="'
-        - 'mkdir -p rootfs_mount'
-        - 'mount -o loop,rw flash_content/rootfs.img rootfs_mount'
+        - 'echo "=== Adding LAVA overlay to qcomflash package ==="'
+        - 'cp "$overlay_file" flash_content/overlay.tar.gz'
+        - 'test -f flash_content/overlay.tar.gz'
+        - 'ls -lh flash_content/overlay.tar.gz'
 
-        - 'cleanup_rootfs() { umount rootfs_mount 2>/dev/null || true; rm -rf rootfs_mount; }'
-        - 'trap cleanup_rootfs EXIT'
-
-        - 'echo "=== Injecting LAVA overlay into rootfs.img ==="'
-        - 'tar -xzf "$overlay_file" -C rootfs_mount'
-
-        - 'sync'
-
-        - 'echo "=== Validating LAVA environment file ==="'
-        - 'lava_environment="$(find rootfs_mount -type f -path "*/environment" -print -quit)"'
-        - 'test -n "$lava_environment"'
-        - 'echo "Confirmed LAVA environment file: $lava_environment"'
-
-        - 'echo "=== Validating rootfs contents ==="'
-        - 'find rootfs_mount -maxdepth 2 -type d -name "lava-*" -print'
-        - 'ls -lh flash_content/rootfs.img'
-
-        - 'echo "=== Unmounting rootfs.img ==="'
-        - 'umount rootfs_mount'
-        - 'rm -rf rootfs_mount'
-        - 'trap - EXIT'
+        - 'echo "=== Validating overlay inside qcomflash package ==="'
+        - 'tar -tzf flash_content/overlay.tar.gz | head -100'
+        - 'tar -tzf flash_content/overlay.tar.gz | grep -q "environment"'
+        - 'echo "Confirmed LAVA environment file exists in overlay"'
 
         - 'echo "=== Creating flash.settings ==="'
         - 'rm -f "$IMAGE_PATH/flash.settings"'
         - 'echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "PORT=0" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "OVERLAY=overlay.tar.gz" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"'
 
         - 'echo "=== flash.settings ==="'
         - 'cat "$IMAGE_PATH/flash.settings"'
@@ -78,8 +66,11 @@
         - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C flash_content .'
 
         - 'test -f "$IMAGE_PATH/combined_flash.tar"'
+        - 'echo "=== Combined flash archive contents ==="'
+        - 'tar -tf "$IMAGE_PATH/combined_flash.tar" | grep -E "(rootfs.img|overlay.tar.gz)"'
         - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
 
+        - 'echo "=== Cleaning extracted qcomflash package ==="'
         - 'rm -rf flash_content'
 
     timeout:
@@ -107,6 +98,7 @@
       login_prompt: '(.*)login:'
       username: root
       password_prompt: Password
+      username_prompt: 'login:'
       password: oelinux123
 
     prompts:

@@ -35,7 +35,7 @@
         - 'ls -lh flash_content/rootfs.img'
 
         - 'echo "=== Locating LAVA overlay ==="'
-        - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" ! -name "overlay.tar.gz" -print -quit)"'
+        - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" -print -quit)"'
         - 'test -n "$overlay_file"'
         - 'echo "Selected overlay: $overlay_file"'
 
@@ -65,8 +65,8 @@
         - 'echo "=== Creating combined flash archive ==="'
         - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C flash_content .'
 
+        - 'echo "=== Validating combined flash archive ==="'
         - 'test -f "$IMAGE_PATH/combined_flash.tar"'
-        - 'echo "=== Combined flash archive contents ==="'
         - 'tar -tf "$IMAGE_PATH/combined_flash.tar" | grep -E "(rootfs.img|overlay.tar.gz)"'
         - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
 
@@ -98,7 +98,6 @@
       login_prompt: '(.*)login:'
       username: root
       password_prompt: Password
-      username_prompt: 'login:'
       password: oelinux123
 
     prompts:

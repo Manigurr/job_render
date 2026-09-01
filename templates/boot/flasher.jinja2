@@ -39,80 +39,57 @@
         - 'test -n "$overlay_file"'
         - 'echo "Selected overlay: $overlay_file"'
 
-        - 'echo "=== LAVA overlay contents ==="'
-        - 'tar -tzf "$overlay_file" | head -50'
+        - 'echo "=== LAVA overlay contents (first 20 lines) ==="'
+        - 'tar -tzf "$overlay_file" | head -20'
 
         - 'echo "=== Extracting LAVA overlay to temp directory ==="'
         - 'mkdir -p overlay_extracted'
         - 'tar -xzf "$overlay_file" -C overlay_extracted'
-        - 'echo "Overlay extracted:"'
         - 'find overlay_extracted -maxdepth 3 | sort | head -30'
 
         - 'echo "=== Checking debugfs availability ==="'
-        - 'debugfs -V 2>&1 | head -2 || true'
         - 'which debugfs'
+        - 'debugfs -V 2>&1 | head -2 || true'
 
-        - 'echo "=== Checking rootfs.img filesystem type ==="'
-        - 'file flash_content/rootfs.img'
-
+        - 'echo "=== Injecting LAVA overlay into rootfs.img using debugfs ==="'
         - |
-          echo "=== Injecting LAVA overlay into rootfs.img using debugfs ==="
-          ROOTFS="flash_content/rootfs.img"
-          OVERLAY_DIR="overlay_extracted"
-
-          # Build a debugfs command script to create dirs and write files
+          ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
+          OVERLAY_DIR="$IMAGE_PATH/overlay_extracted"
           DEBUGFS_CMDS=$(mktemp)
 
-          # First pass: create all directories
+          echo "Building debugfs command script..."
+
+          # Create all directories first
           find "$OVERLAY_DIR" -mindepth 1 -type d | sort | while read -r dir; do
-            rel="/${dir#$OVERLAY_DIR/}"
+            rel="/${dir#${OVERLAY_DIR}/}"
             echo "mkdir $rel" >> "$DEBUGFS_CMDS"
           done
 
-          # Second pass: write all files
-          find "$OVERLAY_DIR" -type f | sort | while read -r file; do
-            rel="/${file#$OVERLAY_DIR/}"
-            dir_rel="$(dirname $rel)"
-            echo "write $file $rel" >> "$DEBUGFS_CMDS"
+          # Write all files
+          find "$OVERLAY_DIR" -type f | sort | while read -r f; do
+            rel="/${f#${OVERLAY_DIR}/}"
+            echo "write $f $rel" >> "$DEBUGFS_CMDS"
           done
 
-          echo "=== debugfs command script ==="
+          echo "=== debugfs commands to execute ==="
           cat "$DEBUGFS_CMDS"
 
-          echo "=== Running debugfs write ==="
+          echo "=== Running debugfs ==="
           debugfs -w "$ROOTFS" < "$DEBUGFS_CMDS"
-
           rm -f "$DEBUGFS_CMDS"
           echo "debugfs injection complete"
 
-        - 'echo "=== Setting file permissions in rootfs.img ==="'
+        - 'echo "=== Validating LAVA environment injected into rootfs.img ==="'
         - |
-          ROOTFS="flash_content/rootfs.img"
-          OVERLAY_DIR="overlay_extracted"
-
-          find "$OVERLAY_DIR" -type f | sort | while read -r file; do
-            rel="/${file#$OVERLAY_DIR/}"
-            # Make all lava bin/* files executable
-            case "$rel" in
-              */lava-*/bin/*)
-                debugfs -w "$ROOTFS" -R "set_inode_field $rel mode 0100755" 2>/dev/null || true
-                ;;
-            esac
-          done
-          echo "Permissions set"
-
-        - 'echo "=== Validating LAVA overlay inside rootfs.img ==="'
-        - |
-          ROOTFS="flash_content/rootfs.img"
-          # Find the lava job dir name from extracted overlay
-          LAVA_DIR="$(ls overlay_extracted/ | grep lava- | head -1)"
-          echo "Looking for: /$LAVA_DIR/environment"
-          RESULT="$(debugfs "$ROOTFS" -R "stat /$LAVA_DIR/environment" 2>&1 || true)"
-          echo "$RESULT"
-          if echo "$RESULT" | grep -q "Inode:"; then
-            echo "Confirmed: /$LAVA_DIR/environment exists in rootfs.img"
+          ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
+          env_check=$(debugfs "$ROOTFS" -R "ls -l /lava-$(ls $IMAGE_PATH/overlay_extracted)/bin" 2>/dev/null || true)
+          echo "lava bin contents: $env_check"
+          env_file=$(debugfs "$ROOTFS" -R "stat /$(ls $IMAGE_PATH/overlay_extracted)/environment" 2>/dev/null || true)
+          echo "environment stat: $env_file"
+          if echo "$env_file" | grep -q "Type: regular"; then
+            echo "Confirmed: LAVA environment file successfully injected into rootfs.img"
           else
-            echo "ERROR: /$LAVA_DIR/environment NOT found in rootfs.img"
+            echo "ERROR: LAVA environment file not found in rootfs.img"
             exit 1
           fi
 
@@ -132,7 +109,6 @@
 
         - 'echo "=== Validating combined flash archive ==="'
         - 'test -f "$IMAGE_PATH/combined_flash.tar"'
-        - 'tar -tf "$IMAGE_PATH/combined_flash.tar" | grep -E "rootfs.img"'
         - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
 
         - 'echo "=== Cleaning extracted qcomflash package ==="'

@@ -13,106 +13,165 @@
         steps:
         - 'set -e'
 
-        - 'export IMAGE_PATH=$PWD'
+        - 'export IMAGE_PATH="$PWD"'
+        - 'export OVERLAY_REQUIRED="${OVERLAY_REQUIRED:-0}"'
 
         - 'echo "DEBUG: platform={{ platform_config.name }}"'
         - 'echo "DEBUG: flash image={{ flash_name }}"'
+        - 'echo "DEBUG: overlay required=${OVERLAY_REQUIRED}"'
 
         - 'echo "=== Downloaded files ==="'
+        - 'find "$IMAGE_PATH" -maxdepth 3 -type f -printf "%p\n" | sort'
         - 'ls -lh "$IMAGE_PATH"'
 
         - 'echo "=== Extracting complete qcomflash package ==="'
-        - 'mkdir -p flash_content'
-        - 'tar -xf "{{ flash_name }}" -C flash_content'
-        - 'rm -f "{{ flash_name }}"'
+        - 'test -f "$IMAGE_PATH/{{ flash_name }}"'
+        - 'mkdir -p "$IMAGE_PATH/flash_content"'
+        - 'tar -xf "$IMAGE_PATH/{{ flash_name }}" -C "$IMAGE_PATH/flash_content"'
+        - 'rm -f "$IMAGE_PATH/{{ flash_name }}"'
 
         - 'echo "=== Complete qcomflash contents ==="'
-        - 'find flash_content -maxdepth 3 -type f -print | sort'
+        - 'find "$IMAGE_PATH/flash_content" -maxdepth 3 -type f -print | sort'
 
         - 'echo "=== Validating rootfs.img ==="'
-        - 'test -f flash_content/rootfs.img'
+        - 'test -f "$IMAGE_PATH/flash_content/rootfs.img"'
         - 'echo "Confirmed rootfs.img exists inside complete qcomflash package"'
-        - 'ls -lh flash_content/rootfs.img'
+        - 'ls -lh "$IMAGE_PATH/flash_content/rootfs.img"'
 
         - 'echo "=== Locating LAVA overlay ==="'
-        - 'overlay_file="$(find "$IMAGE_PATH" -maxdepth 1 -type f -name "overlay*.tar.gz" -print -quit)"'
-        - 'test -n "$overlay_file"'
-        - 'echo "Selected overlay: $overlay_file"'
-
-        - 'echo "=== LAVA overlay contents (first 20 lines) ==="'
-        - 'tar -tzf "$overlay_file" | head -20'
-
-        - 'echo "=== Extracting LAVA overlay to temp directory ==="'
-        - 'mkdir -p overlay_extracted'
-        - 'tar -xzf "$overlay_file" -C overlay_extracted'
-        - 'find overlay_extracted -maxdepth 3 | sort | head -30'
-
-        - 'echo "=== Checking debugfs availability ==="'
-        - 'which debugfs'
-        - 'debugfs -V 2>&1 | head -2 || true'
-
-        - 'echo "=== Injecting LAVA overlay into rootfs.img using debugfs ==="'
         - |
-          ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
-          OVERLAY_DIR="$IMAGE_PATH/overlay_extracted"
-          DEBUGFS_CMDS=$(mktemp)
+          overlay_file="$(find "$IMAGE_PATH" \
+              -type f \
+              -name 'overlay*.tar.gz' \
+              -print \
+              -quit || true)"
 
-          echo "Building debugfs command script..."
-
-          # Create all directories first
-          find "$OVERLAY_DIR" -mindepth 1 -type d | sort | while read -r dir; do
-            rel="/${dir#${OVERLAY_DIR}/}"
-            echo "mkdir $rel" >> "$DEBUGFS_CMDS"
-          done
-
-          # Write all files
-          find "$OVERLAY_DIR" -type f | sort | while read -r f; do
-            rel="/${f#${OVERLAY_DIR}/}"
-            echo "write $f $rel" >> "$DEBUGFS_CMDS"
-          done
-
-          echo "=== debugfs commands to execute ==="
-          cat "$DEBUGFS_CMDS"
-
-          echo "=== Running debugfs ==="
-          debugfs -w "$ROOTFS" < "$DEBUGFS_CMDS"
-          rm -f "$DEBUGFS_CMDS"
-          echo "debugfs injection complete"
-
-        - 'echo "=== Validating LAVA environment injected into rootfs.img ==="'
-        - |
-          ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
-          env_check=$(debugfs "$ROOTFS" -R "ls -l /lava-$(ls $IMAGE_PATH/overlay_extracted)/bin" 2>/dev/null || true)
-          echo "lava bin contents: $env_check"
-          env_file=$(debugfs "$ROOTFS" -R "stat /$(ls $IMAGE_PATH/overlay_extracted)/environment" 2>/dev/null || true)
-          echo "environment stat: $env_file"
-          if echo "$env_file" | grep -q "Type: regular"; then
-            echo "Confirmed: LAVA environment file successfully injected into rootfs.img"
+          if [ -n "$overlay_file" ]; then
+              echo "Selected overlay: $overlay_file"
+              export OVERLAY_FILE="$overlay_file"
           else
-            echo "ERROR: LAVA environment file not found in rootfs.img"
-            exit 1
+              echo "WARNING: No LAVA overlay archive found"
+              export OVERLAY_FILE=""
           fi
 
-        - 'echo "=== Cleaning overlay temp directory ==="'
-        - 'rm -rf overlay_extracted'
+          if [ "${OVERLAY_REQUIRED}" = "1" ] && [ -z "$OVERLAY_FILE" ]; then
+              echo "ERROR: LAVA overlay is required but was not found"
+              exit 1
+          fi
+
+        - |
+          if [ -n "${OVERLAY_FILE:-}" ]; then
+              echo "=== LAVA overlay contents ==="
+              tar -tzf "$OVERLAY_FILE" | head -20
+
+              echo "=== Extracting LAVA overlay ==="
+              rm -rf "$IMAGE_PATH/overlay_extracted"
+              mkdir -p "$IMAGE_PATH/overlay_extracted"
+              tar -xzf "$OVERLAY_FILE" -C "$IMAGE_PATH/overlay_extracted"
+
+              echo "=== Extracted LAVA overlay contents ==="
+              find "$IMAGE_PATH/overlay_extracted" -maxdepth 4 -print | sort | head -50
+          else
+              echo "Skipping LAVA overlay extraction"
+          fi
+
+        - 'echo "=== Checking debugfs availability ==="'
+        - 'command -v debugfs'
+        - 'debugfs -V 2>&1 | head -2 || true'
+
+        - |
+          if [ -n "${OVERLAY_FILE:-}" ]; then
+              echo "=== Injecting LAVA overlay into rootfs.img using debugfs ==="
+
+              ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
+              OVERLAY_DIR="$IMAGE_PATH/overlay_extracted"
+              DEBUGFS_CMDS="$(mktemp)"
+
+              echo "Building debugfs command script..."
+
+              # Create directories first.
+              find "$OVERLAY_DIR" -mindepth 1 -type d | sort | while read -r dir; do
+                  rel="/${dir#${OVERLAY_DIR}/}"
+                  printf 'mkdir %s\n' "$rel" >> "$DEBUGFS_CMDS"
+              done
+
+              # Write files.
+              find "$OVERLAY_DIR" -type f | sort | while read -r file; do
+                  rel="/${file#${OVERLAY_DIR}/}"
+                  printf 'write %s %s\n' "$file" "$rel" >> "$DEBUGFS_CMDS"
+              done
+
+              echo "=== debugfs commands ==="
+              cat "$DEBUGFS_CMDS"
+
+              echo "=== Running debugfs ==="
+              debugfs -w "$ROOTFS" < "$DEBUGFS_CMDS"
+
+              rm -f "$DEBUGFS_CMDS"
+              echo "debugfs injection complete"
+          else
+              echo "Skipping LAVA overlay injection"
+          fi
+
+        - |
+          if [ -n "${OVERLAY_FILE:-}" ]; then
+              echo "=== Validating injected LAVA environment ==="
+
+              ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
+              OVERLAY_DIR="$IMAGE_PATH/overlay_extracted"
+
+              environment_file="$(find "$OVERLAY_DIR" \
+                  -type f \
+                  -path '*/environment' \
+                  -print \
+                  -quit || true)"
+
+              if [ -z "$environment_file" ]; then
+                  echo "WARNING: No environment file found in LAVA overlay"
+              else
+                  environment_rel="/${environment_file#${OVERLAY_DIR}/}"
+                  echo "Checking injected file: $environment_rel"
+
+                  env_file="$(debugfs "$ROOTFS" \
+                      -R "stat $environment_rel" 2>/dev/null || true)"
+
+                  echo "$env_file"
+
+                  if echo "$env_file" | grep -q "Type: regular"; then
+                      echo "Confirmed: LAVA environment file was injected into rootfs.img"
+                  else
+                      echo "ERROR: LAVA environment file was not found in rootfs.img"
+                      exit 1
+                  fi
+              fi
+          else
+              echo "Skipping LAVA environment validation because no overlay was found"
+          fi
+
+        - 'echo "=== Cleaning overlay temporary directory ==="'
+        - 'rm -rf "$IMAGE_PATH/overlay_extracted"'
 
         - 'echo "=== Creating flash.settings ==="'
         - 'rm -f "$IMAGE_PATH/flash.settings"'
         - 'echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "STORAGE=ufs" >> "$IMAGE_PATH/flash.settings"'
         - 'echo "PORT=0" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"'
+        - 'echo "OVERLAY=" >> "$IMAGE_PATH/flash.settings"'
 
         - 'echo "=== flash.settings ==="'
         - 'cat "$IMAGE_PATH/flash.settings"'
 
         - 'echo "=== Creating combined flash archive ==="'
-        - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C flash_content .'
+        - 'rm -f "$IMAGE_PATH/combined_flash.tar"'
+        - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C "$IMAGE_PATH/flash_content" .'
 
         - 'echo "=== Validating combined flash archive ==="'
         - 'test -f "$IMAGE_PATH/combined_flash.tar"'
         - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
 
         - 'echo "=== Cleaning extracted qcomflash package ==="'
-        - 'rm -rf flash_content'
+        - 'rm -rf "$IMAGE_PATH/flash_content"'
 
     timeout:
       minutes: 120

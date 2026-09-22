@@ -2,8 +2,10 @@
     images:
       flash_files:
         url: '{{ node.artifacts.flash_image }}'
+{% if node.artifacts.rootfs_image %}
       rootfs_img:
         url: '{{ node.artifacts.rootfs_image }}'
+{% endif %}
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
@@ -11,14 +13,16 @@
 {% set flash_url = node.artifacts.flash_image %}
 {% set flash_path = flash_url.split('?')[0] %}
 {% set flash_name = flash_path.split('/')[-1] %}
-{% set rootfs_url = node.artifacts.rootfs_image %}
-{% set rootfs_path = rootfs_url.split('?')[0] %}
-{% set rootfs_name = rootfs_path.split('/')[-1] %}
         - export IMAGE_PATH=$PWD
         - mkdir -p flash_content
         - tar -xf {{ flash_name }} -C flash_content
         - rm {{ flash_name }}
+{% if node.artifacts.rootfs_image %}
+{% set rootfs_url = node.artifacts.rootfs_image %}
+{% set rootfs_path = rootfs_url.split('?')[0] %}
+{% set rootfs_name = rootfs_path.split('/')[-1] %}
         - mv {{ rootfs_name }} flash_content/rootfs.img
+{% endif %}
         - cp overlay*.tar.gz overlay.tar.gz
         - echo "=== Overlay Full File List ==="
         - tar -tzf overlay.tar.gz
@@ -30,7 +34,6 @@
         - echo "=== Systemd overrides in overlay ===" && tar -tzf overlay.tar.gz | grep -i systemd || echo "No systemd files found in overlay"
         - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
         - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
-        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings

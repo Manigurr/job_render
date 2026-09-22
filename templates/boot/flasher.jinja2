@@ -24,20 +24,34 @@
         - mv {{ rootfs_name }} flash_content/rootfs.img
 {% endif %}
         - cp overlay*.tar.gz overlay.tar.gz
-        - echo "=== Overlay Full File List ==="
-        - tar -tzf overlay.tar.gz
+        - echo "=== Overlay inspection ==="
+        - tar -tzf overlay.tar.gz | head -20
         - echo "=== /etc/passwd in overlay ===" && tar -xOf overlay.tar.gz etc/passwd 2>/dev/null || echo "No etc/passwd found in overlay"
         - echo "=== /etc/shadow in overlay ===" && tar -xOf overlay.tar.gz etc/shadow 2>/dev/null || echo "No etc/shadow found in overlay"
-        - echo "=== /etc/group in overlay ===" && tar -xOf overlay.tar.gz etc/group 2>/dev/null || echo "No etc/group found in overlay"
-        - echo "=== /etc/hostname in overlay ===" && tar -xOf overlay.tar.gz etc/hostname 2>/dev/null || echo "No etc/hostname found in overlay"
-        - echo "=== Getty/Autologin related files in overlay ===" && tar -tzf overlay.tar.gz | grep -E "getty|autologin|inittab|pam|profile|shadow" || echo "No getty/autologin files found in overlay"
-        - echo "=== Systemd overrides in overlay ===" && tar -tzf overlay.tar.gz | grep -i systemd || echo "No systemd files found in overlay"
-        - mkdir -p /mnt/rootfs
-        - mount -o loop flash_content/rootfs.img /mnt/rootfs
-        - tar -xzf overlay.tar.gz -C /mnt/rootfs
-        - echo "=== Verifying overlay applied to rootfs ==="
-        - ls /mnt/rootfs/lava-*/bin/ || echo "lava bins not found"
-        - umount /mnt/rootfs
+        - echo "=== Baking overlay into rootfs using debugfs ==="
+        - mkdir -p /tmp/lava_overlay
+        - tar -xzf overlay.tar.gz -C /tmp/lava_overlay
+        - |
+          python3 -c "
+          import os
+          base = '/tmp/lava_overlay'
+          lines = []
+          for root, dirs, files in os.walk(base):
+              relroot = os.path.relpath(root, base)
+              if relroot != '.':
+                  lines.append('mkdir /' + relroot.replace(os.sep, '/'))
+              for f in files:
+                  src = os.path.join(root, f)
+                  dst = relroot + '/' + f if relroot != '.' else f
+                  dst = '/' + dst.replace(os.sep, '/')
+                  lines.append('write ' + src + ' ' + dst)
+          print('\n'.join(lines))
+          " > /tmp/debugfs_cmds.txt
+        - echo "=== debugfs commands preview (first 20) ==="
+        - head -20 /tmp/debugfs_cmds.txt
+        - debugfs -w flash_content/rootfs.img < /tmp/debugfs_cmds.txt
+        - echo "=== Verifying overlay baked into rootfs ==="
+        - echo "ls /lava-${LAVA_JOB_ID}" | debugfs flash_content/rootfs.img 2>/dev/null || echo "Verification check done"
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings

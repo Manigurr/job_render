@@ -32,8 +32,12 @@
         - echo "=== /etc/hostname in overlay ===" && tar -xOf overlay.tar.gz etc/hostname 2>/dev/null || echo "No etc/hostname found in overlay"
         - echo "=== Getty/Autologin related files in overlay ===" && tar -tzf overlay.tar.gz | grep -E "getty|autologin|inittab|pam|profile|shadow" || echo "No getty/autologin files found in overlay"
         - echo "=== Systemd overrides in overlay ===" && tar -tzf overlay.tar.gz | grep -i systemd || echo "No systemd files found in overlay"
-        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
-        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
+        - mkdir -p /mnt/rootfs
+        - mount -o loop flash_content/rootfs.img /mnt/rootfs
+        - tar -xzf overlay.tar.gz -C /mnt/rootfs
+        - echo "=== Verifying overlay applied to rootfs ==="
+        - ls /mnt/rootfs/lava-*/bin/ || echo "lava bins not found"
+        - umount /mnt/rootfs
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
@@ -49,8 +53,6 @@
         url: 'downloads://combined_flash.tar'
       settings:
         url: downloads://flash.settings
-      overlay:
-        url: downloads://overlay.tar.gz
     timeout:
       minutes: 10
     to: flasher

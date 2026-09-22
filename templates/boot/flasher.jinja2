@@ -1,197 +1,56 @@
-{% set flash_url = node.artifacts.flash_image %}
-{% set flash_path = flash_url.split('?')[0] %}
-{% set flash_name = flash_path.split('/')[-1] %}
-
 - deploy:
     images:
       flash_files:
         url: '{{ node.artifacts.flash_image }}'
-
+      rootfs_img:
+        url: '{{ node.artifacts.rootfs_image }}'
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
-        - 'set -e'
-
-        - 'export IMAGE_PATH="$PWD"'
-        - 'export OVERLAY_REQUIRED="${OVERLAY_REQUIRED:-0}"'
-
-        - 'echo "DEBUG: platform={{ platform_config.name }}"'
-        - 'echo "DEBUG: flash image={{ flash_name }}"'
-        - 'echo "DEBUG: overlay required=${OVERLAY_REQUIRED}"'
-
-        - 'echo "=== Downloaded files ==="'
-        - 'find "$IMAGE_PATH" -maxdepth 3 -type f -printf "%p\n" | sort'
-        - 'ls -lh "$IMAGE_PATH"'
-
-        - 'echo "=== Extracting complete qcomflash package ==="'
-        - 'test -f "$IMAGE_PATH/{{ flash_name }}"'
-        - 'mkdir -p "$IMAGE_PATH/flash_content"'
-        - 'tar -xf "$IMAGE_PATH/{{ flash_name }}" -C "$IMAGE_PATH/flash_content"'
-        - 'rm -f "$IMAGE_PATH/{{ flash_name }}"'
-
-        - 'echo "=== Complete qcomflash contents ==="'
-        - 'find "$IMAGE_PATH/flash_content" -maxdepth 3 -type f -print | sort'
-
-        - 'echo "=== Validating rootfs.img ==="'
-        - 'test -f "$IMAGE_PATH/flash_content/rootfs.img"'
-        - 'echo "Confirmed rootfs.img exists inside complete qcomflash package"'
-        - 'ls -lh "$IMAGE_PATH/flash_content/rootfs.img"'
-
-        - 'echo "=== Locating LAVA overlay ==="'
-        - |
-          overlay_file="$(find "$IMAGE_PATH" \
-              -type f \
-              -name 'overlay*.tar.gz' \
-              -print \
-              -quit || true)"
-
-          if [ -n "$overlay_file" ]; then
-              echo "Selected overlay: $overlay_file"
-              export OVERLAY_FILE="$overlay_file"
-          else
-              echo "WARNING: No LAVA overlay archive found"
-              export OVERLAY_FILE=""
-          fi
-
-          if [ "${OVERLAY_REQUIRED}" = "1" ] && [ -z "$OVERLAY_FILE" ]; then
-              echo "ERROR: LAVA overlay is required but was not found"
-              exit 1
-          fi
-
-        - |
-          if [ -n "${OVERLAY_FILE:-}" ]; then
-              echo "=== LAVA overlay contents ==="
-              tar -tzf "$OVERLAY_FILE" | head -20
-
-              echo "=== Extracting LAVA overlay ==="
-              rm -rf "$IMAGE_PATH/overlay_extracted"
-              mkdir -p "$IMAGE_PATH/overlay_extracted"
-              tar -xzf "$OVERLAY_FILE" -C "$IMAGE_PATH/overlay_extracted"
-
-              echo "=== Extracted LAVA overlay contents ==="
-              find "$IMAGE_PATH/overlay_extracted" -maxdepth 4 -print | sort | head -50
-          else
-              echo "Skipping LAVA overlay extraction"
-          fi
-
-        - 'echo "=== Checking debugfs availability ==="'
-        - 'command -v debugfs'
-        - 'debugfs -V 2>&1 | head -2 || true'
-
-        - |
-          if [ -n "${OVERLAY_FILE:-}" ]; then
-              echo "=== Injecting LAVA overlay into rootfs.img using debugfs ==="
-
-              ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
-              OVERLAY_DIR="$IMAGE_PATH/overlay_extracted"
-              DEBUGFS_CMDS="$(mktemp)"
-
-              echo "Building debugfs command script..."
-
-              # Create directories first.
-              find "$OVERLAY_DIR" -mindepth 1 -type d | sort | while read -r dir; do
-                  rel="/${dir#${OVERLAY_DIR}/}"
-                  printf 'mkdir %s\n' "$rel" >> "$DEBUGFS_CMDS"
-              done
-
-              # Write files.
-              find "$OVERLAY_DIR" -type f | sort | while read -r file; do
-                  rel="/${file#${OVERLAY_DIR}/}"
-                  printf 'write %s %s\n' "$file" "$rel" >> "$DEBUGFS_CMDS"
-              done
-
-              echo "=== debugfs commands ==="
-              cat "$DEBUGFS_CMDS"
-
-              echo "=== Running debugfs ==="
-              debugfs -w "$ROOTFS" < "$DEBUGFS_CMDS"
-
-              rm -f "$DEBUGFS_CMDS"
-              echo "debugfs injection complete"
-          else
-              echo "Skipping LAVA overlay injection"
-          fi
-
-        - |
-          if [ -n "${OVERLAY_FILE:-}" ]; then
-              echo "=== Validating injected LAVA environment ==="
-
-              ROOTFS="$IMAGE_PATH/flash_content/rootfs.img"
-              OVERLAY_DIR="$IMAGE_PATH/overlay_extracted"
-
-              environment_file="$(find "$OVERLAY_DIR" \
-                  -type f \
-                  -path '*/environment' \
-                  -print \
-                  -quit || true)"
-
-              if [ -z "$environment_file" ]; then
-                  echo "WARNING: No environment file found in LAVA overlay"
-              else
-                  environment_rel="/${environment_file#${OVERLAY_DIR}/}"
-                  echo "Checking injected file: $environment_rel"
-
-                  env_file="$(debugfs "$ROOTFS" \
-                      -R "stat $environment_rel" 2>/dev/null || true)"
-
-                  echo "$env_file"
-
-                  if echo "$env_file" | grep -q "Type: regular"; then
-                      echo "Confirmed: LAVA environment file was injected into rootfs.img"
-                  else
-                      echo "ERROR: LAVA environment file was not found in rootfs.img"
-                      exit 1
-                  fi
-              fi
-          else
-              echo "Skipping LAVA environment validation because no overlay was found"
-          fi
-
-        - 'echo "=== Cleaning overlay temporary directory ==="'
-        - 'rm -rf "$IMAGE_PATH/overlay_extracted"'
-
-        - 'echo "=== Creating flash.settings ==="'
-        - 'rm -f "$IMAGE_PATH/flash.settings"'
-        - 'echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"'
-        - 'echo "STORAGE=ufs" >> "$IMAGE_PATH/flash.settings"'
-        - 'echo "PORT=0" >> "$IMAGE_PATH/flash.settings"'
-        - 'echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"'
-        - 'echo "OVERLAY=" >> "$IMAGE_PATH/flash.settings"'
-
-        - 'echo "=== flash.settings ==="'
-        - 'cat "$IMAGE_PATH/flash.settings"'
-
-        - 'echo "=== Creating combined flash archive ==="'
-        - 'rm -f "$IMAGE_PATH/combined_flash.tar"'
-        - 'tar -cf "$IMAGE_PATH/combined_flash.tar" -C "$IMAGE_PATH/flash_content" .'
-
-        - 'echo "=== Validating combined flash archive ==="'
-        - 'test -f "$IMAGE_PATH/combined_flash.tar"'
-        - 'ls -lh "$IMAGE_PATH/combined_flash.tar"'
-
-        - 'echo "=== Cleaning extracted qcomflash package ==="'
-        - 'rm -rf "$IMAGE_PATH/flash_content"'
-
+{% set flash_url = node.artifacts.flash_image %}
+{% set flash_path = flash_url.split('?')[0] %}
+{% set flash_name = flash_path.split('/')[-1] %}
+{% set rootfs_url = node.artifacts.rootfs_image %}
+{% set rootfs_path = rootfs_url.split('?')[0] %}
+{% set rootfs_name = rootfs_path.split('/')[-1] %}
+        - export IMAGE_PATH=$PWD
+        - mkdir -p flash_content
+        - tar -xf {{ flash_name }} -C flash_content
+        - rm {{ flash_name }}
+        - mv {{ rootfs_name }} flash_content/rootfs.img
+        - cp overlay*.tar.gz overlay.tar.gz
+        - echo "=== Overlay Full File List ==="
+        - tar -tzf overlay.tar.gz
+        - echo "=== /etc/passwd in overlay ===" && tar -xOf overlay.tar.gz etc/passwd 2>/dev/null || echo "No etc/passwd found in overlay"
+        - echo "=== /etc/shadow in overlay ===" && tar -xOf overlay.tar.gz etc/shadow 2>/dev/null || echo "No etc/shadow found in overlay"
+        - echo "=== /etc/group in overlay ===" && tar -xOf overlay.tar.gz etc/group 2>/dev/null || echo "No etc/group found in overlay"
+        - echo "=== /etc/hostname in overlay ===" && tar -xOf overlay.tar.gz etc/hostname 2>/dev/null || echo "No etc/hostname found in overlay"
+        - echo "=== Getty/Autologin related files in overlay ===" && tar -tzf overlay.tar.gz | grep -E "getty|autologin|inittab|pam|profile|shadow" || echo "No getty/autologin files found in overlay"
+        - echo "=== Systemd overrides in overlay ===" && tar -tzf overlay.tar.gz | grep -i systemd || echo "No systemd files found in overlay"
+        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
+        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
+        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
+        - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
+        - echo "PORT=0" >> $IMAGE_PATH/flash.settings
+        - cat $IMAGE_PATH/flash.settings
+        - tar -cf combined_flash.tar -C flash_content .
+        - rm -rf flash_content
     timeout:
       minutes: 120
-
     to: downloads
-
 
 - deploy:
     images:
       image:
-        url: downloads://combined_flash.tar
-
+        url: 'downloads://combined_flash.tar'
       settings:
         url: downloads://flash.settings
-
+      overlay:
+        url: downloads://overlay.tar.gz
     timeout:
       minutes: 10
-
     to: flasher
-
 
 - boot:
     auto_login:
@@ -199,20 +58,14 @@
       username: root
       password_prompt: Password
       password: oelinux123
-
     prompts:
-      - 'root@(.*):[/~]#'
-
+    - root@(.*):[/~]#
     failure_retry: 3
-
     timeout:
       minutes: 20
-
     timeouts:
       bootloader-commands:
         minutes: 5
-
       auto-login-action:
         minutes: 20
-
     method: minimal

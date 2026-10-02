@@ -23,6 +23,19 @@
 {% set rootfs_name = rootfs_path.split('/')[-1] %}
         - mv {{ rootfs_name }} flash_content/rootfs.img
 {% endif %}
+        - echo "=== rootfs.img size and type ==="
+        - ls -lh flash_content/rootfs.img
+        - file flash_content/rootfs.img
+        - |
+          if file flash_content/rootfs.img | grep -q "sparse"; then
+            echo "=== Detected sparse image, converting to raw ext4 ==="
+            simg2img flash_content/rootfs.img flash_content/rootfs_raw.img
+            mv flash_content/rootfs_raw.img flash_content/rootfs.img
+            echo "=== Conversion done, new size ==="
+            ls -lh flash_content/rootfs.img
+          else
+            echo "=== rootfs.img is already raw ext4, no conversion needed ==="
+          fi
         - cp overlay*.tar.gz overlay.tar.gz
         - echo "=== Overlay inspection ==="
         - tar -tzf overlay.tar.gz | head -20
@@ -35,23 +48,48 @@
           python3 -c "
           import os
           base = '/tmp/lava_overlay'
-          lines = []
+          dir_lines = []
+          file_lines = []
           for root, dirs, files in os.walk(base):
               relroot = os.path.relpath(root, base)
               if relroot != '.':
-                  lines.append('mkdir /' + relroot.replace(os.sep, '/'))
+                  depth = relroot.count(os.sep)
+                  dir_lines.append((depth, 'mkdir /' + relroot.replace(os.sep, '/')))
               for f in files:
                   src = os.path.join(root, f)
                   dst = relroot + '/' + f if relroot != '.' else f
                   dst = '/' + dst.replace(os.sep, '/')
-                  lines.append('write ' + src + ' ' + dst)
-          print('\n'.join(lines))
+                  file_lines.append('write ' + src + ' ' + dst)
+          dir_lines.sort(key=lambda x: x[0])
+          print('\n'.join([l for _, l in dir_lines] + file_lines))
           " > /tmp/debugfs_cmds.txt
         - echo "=== debugfs commands preview (first 20) ==="
         - head -20 /tmp/debugfs_cmds.txt
-        - debugfs -w flash_content/rootfs.img < /tmp/debugfs_cmds.txt
+        - echo "=== Total commands to run ==="
+        - wc -l /tmp/debugfs_cmds.txt
+        - |
+          debugfs -w flash_content/rootfs.img < /tmp/debugfs_cmds.txt 2>&1 | tee /tmp/debugfs_output.txt
+          if grep -iE "error|no such|failed|cannot" /tmp/debugfs_output.txt; then
+            echo "WARNING: debugfs reported errors above - overlay may be incomplete"
+          else
+            echo "=== debugfs baking completed without errors ==="
+          fi
         - echo "=== Verifying overlay baked into rootfs ==="
-        - echo "ls /lava-${LAVA_JOB_ID}" | debugfs flash_content/rootfs.img 2>/dev/null || echo "Verification check done"
+        - |
+          LAVA_DIR=$(ls /tmp/lava_overlay/ | grep '^lava-' | head -1)
+          if [ -n "$LAVA_DIR" ]; then
+            echo "Checking /$LAVA_DIR in rootfs..."
+            echo "ls /$LAVA_DIR" | debugfs flash_content/rootfs.img 2>&1 | grep -v "^$"
+            if echo "ls /$LAVA_DIR" | debugfs flash_content/rootfs.img 2>&1 | grep -q "environment"; then
+              echo "SUCCESS: overlay baked correctly - environment file found"
+            else
+              echo "FATAL: environment file NOT found in rootfs - overlay baking failed!"
+              exit 1
+            fi
+          else
+            echo "WARNING: No lava- directory found in overlay"
+            exit 1
+          fi
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings

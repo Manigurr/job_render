@@ -37,6 +37,10 @@
           else
             echo "=== rootfs.img is already raw ext4 ==="
           fi
+        - echo "=== Running fsck on rootfs before overlay baking ==="
+        - e2fsck -fy flash_content/rootfs.img || echo "WARN: fsck reported issues (exit code $?)"
+        - echo "=== Checking rootfs filesystem info ==="
+        - dumpe2fs flash_content/rootfs.img 2>/dev/null | grep -E "Free (blocks|inodes)|Block count|Inode count" || echo "Could not get fs info"
         - cp overlay*.tar.gz overlay.tar.gz
         - echo "=== Overlay inspection ==="
         - tar -tzf overlay.tar.gz | head -20
@@ -57,35 +61,109 @@
           echo "=== e2tools available ==="
           ROOTFS=flash_content/rootfs.img
           BASE=/tmp/lava_overlay
+          
+          echo "=== Creating directories in rootfs ==="
           find $BASE -type d | sort | while read dir; do
             reldir=$(echo "$dir" | sed "s|$BASE||")
             if [ -n "$reldir" ]; then
               echo "Creating dir: $reldir"
-              e2mkdir -p "${ROOTFS}:${reldir}" || echo "WARN: e2mkdir failed for $reldir"
+              if ! e2mkdir -p "${ROOTFS}:${reldir}"; then
+                echo "ERROR: e2mkdir failed for $reldir"
+                # Try to check if parent exists
+                parent=$(dirname "$reldir")
+                e2ls "${ROOTFS}:${parent}" 2>&1 || echo "Parent $parent does not exist"
+                exit 1
+              fi
+              # Verify directory was created
+              if ! e2ls "${ROOTFS}:${reldir}" >/dev/null 2>&1; then
+                echo "FATAL: Directory $reldir not found after creation"
+                exit 1
+              fi
             fi
           done
+          
+          echo "=== Copying files to rootfs ==="
           find $BASE -type f | while read src; do
             reldst=$(echo "$src" | sed "s|$BASE||")
-            echo "Copying: $reldst"
-            e2cp -p "$src" "${ROOTFS}:${reldst}" || {
+            echo "Copying: $reldst ($(stat -c%s "$src") bytes)"
+            
+            # Ensure parent directory exists
+            parent=$(dirname "$reldst")
+            if [ "$parent" != "/" ] && [ "$parent" != "." ]; then
+              e2ls "${ROOTFS}:${parent}" >/dev/null 2>&1 || {
+                echo "ERROR: Parent directory $parent missing before copy"
+                exit 1
+              }
+            fi
+            
+            # Copy the file
+            if ! e2cp -p "$src" "${ROOTFS}:${reldst}"; then
               echo "FATAL: e2cp failed for $reldst"
+              echo "Source file: $src"
+              echo "Destination: ${ROOTFS}:${reldst}"
+              ls -lh "$src"
               exit 1
-            }
+            fi
+            
+            # Verify file was copied and has correct size
+            if ! e2ls "${ROOTFS}:${reldst}" >/dev/null 2>&1; then
+              echo "FATAL: File $reldst not found after copy"
+              exit 1
+            fi
+            
+            # Check file size in rootfs (basic verification)
+            src_size=$(stat -c%s "$src")
+            echo "  -> Copied successfully (source: $src_size bytes)"
           done
+          
           echo "=== Overlay bake complete ==="
-        - echo "=== Verifying overlay in rootfs ==="
+        - echo "=== Running fsck after overlay baking ==="
+        - e2fsck -fy flash_content/rootfs.img || echo "WARN: fsck after baking reported issues (exit code $?)"
+        - echo "=== Comprehensive overlay verification in rootfs ==="
         - |
           set -e
+          ROOTFS=flash_content/rootfs.img
           LAVA_DIR=$(ls /tmp/lava_overlay/ | grep '^lava-' | head -1)
+          
           if [ -z "$LAVA_DIR" ]; then
             echo "FATAL: No lava- directory found in overlay"
+            ls -la /tmp/lava_overlay/
             exit 1
           fi
-          e2ls "flash_content/rootfs.img:/$LAVA_DIR/" | grep -q "environment" || {
-            echo "FATAL: environment file NOT found in rootfs — baking failed!"
+          
+          echo "LAVA directory: $LAVA_DIR"
+          
+          # List contents of LAVA directory in rootfs
+          echo "=== Contents of /$LAVA_DIR in rootfs ==="
+          e2ls -l "${ROOTFS}:/${LAVA_DIR}/" || {
+            echo "FATAL: Cannot list /$LAVA_DIR in rootfs"
             exit 1
           }
-          echo "SUCCESS: /$LAVA_DIR/environment confirmed in rootfs!"
+          
+          # Verify critical files
+          echo "=== Verifying critical LAVA files ==="
+          for file in environment bin/lava-test-runner bin/lava-test-shell; do
+            filepath="/${LAVA_DIR}/${file}"
+            echo "Checking: $filepath"
+            if ! e2ls "${ROOTFS}:${filepath}" >/dev/null 2>&1; then
+              echo "FATAL: Missing critical file: $filepath"
+              echo "Contents of $(dirname $filepath):"
+              e2ls "${ROOTFS}:$(dirname $filepath)" || echo "Parent directory missing!"
+              exit 1
+            fi
+            echo "  -> OK: $filepath exists"
+          done
+          
+          # Verify environment file specifically
+          if ! e2ls "${ROOTFS}:/${LAVA_DIR}/environment" | grep -q "environment"; then
+            echo "FATAL: environment file NOT found in rootfs — baking failed!"
+            echo "Listing /$LAVA_DIR again:"
+            e2ls -la "${ROOTFS}:/${LAVA_DIR}/"
+            exit 1
+          fi
+          
+          echo "SUCCESS: All critical LAVA overlay files confirmed in rootfs!"
+          echo "SUCCESS: /$LAVA_DIR/environment verified in rootfs!"
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings

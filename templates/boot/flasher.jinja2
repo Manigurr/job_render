@@ -2,10 +2,8 @@
     images:
       flash_files:
         url: '{{ node.artifacts.flash_image }}'
-{% if node.artifacts.rootfs_image %}
       rootfs_img:
         url: '{{ node.artifacts.rootfs_image }}'
-{% endif %}
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
@@ -13,95 +11,18 @@
 {% set flash_url = node.artifacts.flash_image %}
 {% set flash_path = flash_url.split('?')[0] %}
 {% set flash_name = flash_path.split('/')[-1] %}
+{% set rootfs_url = node.artifacts.rootfs_image %}
+{% set rootfs_path = rootfs_url.split('?')[0] %}
+{% set rootfs_name = rootfs_path.split('/')[-1] %}
         - export IMAGE_PATH=$PWD
         - mkdir -p flash_content
         - tar -xf {{ flash_name }} -C flash_content
         - rm {{ flash_name }}
-{% if node.artifacts.rootfs_image %}
-{% set rootfs_url = node.artifacts.rootfs_image %}
-{% set rootfs_path = rootfs_url.split('?')[0] %}
-{% set rootfs_name = rootfs_path.split('/')[-1] %}
         - mv {{ rootfs_name }} flash_content/rootfs.img
-{% endif %}
-        - echo "=== rootfs.img size ==="
-        - ls -lh flash_content/rootfs.img
-        - |
-          MAGIC=$(od -A n -t x1 -N 4 flash_content/rootfs.img | tr -d ' \n')
-          echo "=== rootfs.img magic bytes: $MAGIC ==="
-          if [ "$MAGIC" = "3aff26ed" ]; then
-            echo "=== Detected sparse image, converting to raw ext4 ==="
-            simg2img flash_content/rootfs.img flash_content/rootfs_raw.img
-            mv flash_content/rootfs_raw.img flash_content/rootfs.img
-            echo "=== Conversion done ==="
-            ls -lh flash_content/rootfs.img
-          else
-            echo "=== rootfs.img is already raw ext4 ==="
-          fi
-        - echo "=== Running fsck before overlay baking ==="
-        - e2fsck -fy flash_content/rootfs.img || echo "WARN fsck exit code $?"
         - cp overlay*.tar.gz overlay.tar.gz
-        - echo "=== Overlay inspection ==="
-        - tar -tzf overlay.tar.gz | head -20
-        - echo "=== /etc/passwd in overlay ===" && tar -xOf overlay.tar.gz etc/passwd 2>/dev/null || echo "No etc/passwd found in overlay"
-        - echo "=== /etc/shadow in overlay ===" && tar -xOf overlay.tar.gz etc/shadow 2>/dev/null || echo "No etc/shadow found in overlay"
-        - echo "=== Baking overlay into rootfs using e2tools ==="
-        - mkdir -p /tmp/lava_overlay
-        - tar -xzf overlay.tar.gz -C /tmp/lava_overlay
-        - |
-          set -e
-          if ! command -v e2cp > /dev/null 2>&1; then
-            echo "e2tools not found, attempting apt install..."
-            apt-get update -qq && apt-get install -y -qq e2tools || {
-              echo "FATAL: e2tools not available"
-              exit 1
-            }
-          fi
-          echo "=== e2tools available ==="
-          ROOTFS=flash_content/rootfs.img
-          BASE=/tmp/lava_overlay
-          find $BASE -type d | sort | while read dir; do
-            reldir=$(echo "$dir" | sed "s|$BASE||")
-            if [ -n "$reldir" ]; then
-              echo "Creating dir: $reldir"
-              if ! e2mkdir -p "${ROOTFS}:${reldir}"; then
-                echo "ERROR: e2mkdir failed for $reldir"
-                exit 1
-              fi
-            fi
-          done
-          find $BASE -type f | while read src; do
-            reldst=$(echo "$src" | sed "s|$BASE||")
-            echo "Copying: $reldst"
-            if ! e2cp -p "$src" "${ROOTFS}:${reldst}"; then
-              echo "FATAL: e2cp failed for $reldst"
-              exit 1
-            fi
-          done
-          echo "=== Overlay bake complete ==="
-        - echo "=== Running fsck after overlay baking ==="
-        - e2fsck -fy flash_content/rootfs.img || echo "WARN fsck exit code $?"
-        - echo "=== Verifying overlay in rootfs ==="
-        - |
-          set -e
-          LAVA_DIR=$(ls /tmp/lava_overlay/ | grep '^lava-' | head -1)
-          if [ -z "$LAVA_DIR" ]; then
-            echo "FATAL: No lava- directory found in overlay"
-            exit 1
-          fi
-          echo "LAVA directory: $LAVA_DIR"
-          echo "=== Listing LAVA directory in rootfs ==="
-          e2ls "flash_content/rootfs.img:/$LAVA_DIR/" || {
-            echo "FATAL: Cannot list /$LAVA_DIR in rootfs"
-            exit 1
-          }
-          echo "=== Checking for environment file ==="
-          if ! e2ls "flash_content/rootfs.img:/$LAVA_DIR/environment" >/dev/null 2>&1; then
-            echo "FATAL: environment file NOT found in rootfs"
-            echo "Contents of /$LAVA_DIR:"
-            e2ls "flash_content/rootfs.img:/$LAVA_DIR/" || true
-            exit 1
-          fi
-          echo "SUCCESS: /$LAVA_DIR/environment confirmed in rootfs!"
+        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
+        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
+        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
@@ -110,17 +31,17 @@
     timeout:
       minutes: 120
     to: downloads
-
 - deploy:
     images:
       image:
         url: 'downloads://combined_flash.tar'
       settings:
         url: downloads://flash.settings
+      overlay:
+        url: downloads://overlay.tar.gz
     timeout:
       minutes: 10
     to: flasher
-
 - boot:
     auto_login:
       login_prompt: '(.*)login:'

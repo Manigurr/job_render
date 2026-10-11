@@ -20,45 +20,33 @@
         - mkdir overlay_root
         - tar -xzvf overlay.tar.gz -C overlay_root
         - tar -xzvf Test_binaries.tar.gz -C overlay_root
-        - echo "=== Installing e2tools/util-linux if required ==="
+        - echo "=== Installing e2tools if required ==="
         - |
-          if ! command -v e2cp > /dev/null 2>&1 || ! command -v sfdisk > /dev/null 2>&1; then
-            apt-get update -qq && apt-get install -y -qq e2tools fdisk
+          if ! command -v e2cp > /dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq e2tools
           fi
-        - echo "=== Locating rootfs partition inside $IMG ==="
+        - echo "=== Extracting $IMG ==="
+        - mkdir -p flash_content
+        - tar -xf "$IMG" -C flash_content
         - |
-          set -e
-          sfdisk -d "$IMG" > partlayout.txt
-          cat partlayout.txt
-          PART_LINE=$(grep -i 'name="rootfs"' partlayout.txt || true)
-          if [ -z "$PART_LINE" ]; then
-            echo "FATAL: could not find a partition named rootfs in $IMG"
+          if [ ! -f flash_content/rootfs.img ]; then
+            echo "FATAL: rootfs.img not found inside $IMG"
+            ls -la flash_content
             exit 1
           fi
-          START_SECTOR=$(echo "$PART_LINE" | sed -n 's/.*start=\s*\([0-9]\+\).*/\1/p')
-          SIZE_SECTORS=$(echo "$PART_LINE" | sed -n 's/.*size=\s*\([0-9]\+\).*/\1/p')
-          if [ -z "$START_SECTOR" ] || [ -z "$SIZE_SECTORS" ]; then
-            echo "FATAL: could not parse rootfs partition start/size"
-            exit 1
-          fi
-          echo "$START_SECTOR" > start_sector.txt
-          echo "$SIZE_SECTORS"  > size_sectors.txt
-          echo "rootfs partition: start_sector=$START_SECTOR size_sectors=$SIZE_SECTORS"
-        - echo "=== Extracting rootfs partition from $IMG ==="
-        - dd if="$IMG" of=rootfs.img bs=512 skip=$(cat start_sector.txt) count=$(cat size_sectors.txt)
-        - e2fsck -fy rootfs.img || echo "WARN fsck exit code $?"
-        - echo "=== Baking overlay into extracted rootfs.img ==="
+        - e2fsck -fy flash_content/rootfs.img || echo "WARN fsck exit code $?"
+        - echo "=== Baking overlay into flash_content/rootfs.img ==="
         - |
           set -e
           BASE=overlay_root
           find "$BASE" -type d | sort | while read -r dir; do
             reldir="${dir#$BASE}"
             [ -z "$reldir" ] && continue
-            e2mkdir "rootfs.img:${reldir}" || { echo "FATAL: e2mkdir failed for $reldir"; exit 1; }
+            e2mkdir "flash_content/rootfs.img:${reldir}" || { echo "FATAL: e2mkdir failed for $reldir"; exit 1; }
           done
           find "$BASE" -type f | while read -r src; do
             reldst="${src#$BASE}"
-            e2cp -p "$src" "rootfs.img:${reldst}" || { echo "FATAL: e2cp failed for $reldst"; exit 1; }
+            e2cp -p "$src" "flash_content/rootfs.img:${reldst}" || { echo "FATAL: e2cp failed for $reldst"; exit 1; }
           done
         - echo "=== Verifying overlay baked into rootfs.img ==="
         - |
@@ -68,21 +56,22 @@
             echo "FATAL: no lava-<job> directory found in overlay"
             exit 1
           fi
-          if ! e2ls "rootfs.img:/$LAVA_DIR/environment" > /dev/null 2>&1; then
+          if ! e2ls "flash_content/rootfs.img:/$LAVA_DIR/environment" > /dev/null 2>&1; then
             echo "FATAL: /$LAVA_DIR/environment missing from rootfs.img after bake"
-            e2ls "rootfs.img:/$LAVA_DIR/" || true
+            e2ls "flash_content/rootfs.img:/$LAVA_DIR/" || true
             exit 1
           fi
           echo "SUCCESS: /$LAVA_DIR/environment confirmed in rootfs.img"
-        - e2fsck -fy rootfs.img || echo "WARN fsck exit code $?"
-        - echo "=== Writing baked rootfs.img back into $IMG ==="
-        - dd if=rootfs.img of="$IMG" bs=512 seek=$(cat start_sector.txt) conv=notrunc
-        - rm -f rootfs.img
+        - e2fsck -fy flash_content/rootfs.img || echo "WARN fsck exit code $?"
+        - echo "=== Repacking $IMG with baked rootfs.img ==="
+        - rm -f "$IMG"
+        - tar -cf "$IMG" -C flash_content .
+        - rm -rf flash_content
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
     timeout:
-     minutes: 60
+     minutes: 45
     to: downloads
 - deploy:
     images:

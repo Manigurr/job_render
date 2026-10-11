@@ -1,3 +1,6 @@
+{% set flash_image_url = node.artifacts.flash_image %}
+{% set flash_image_path = flash_image_url.split('?')[0] %}
+{% set flash_image_name = flash_image_path.split('/')[-1] %}
 - deploy:
     images:
       image:
@@ -11,31 +14,82 @@
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
         - export IMAGE_PATH=$PWD
+        - export IMG={{ flash_image_name }}
+        - echo "=== Preparing combined test overlay ==="
         - cp overlay*.tar.gz overlay.tar.gz
         - mkdir overlay_root
         - tar -xzvf overlay.tar.gz -C overlay_root
-        - tar -xzvf Test_binaries.tar.gz -C overlay_root 
-        - tar -cvzf overlay.tar.gz -C overlay_root .
-        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
-        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
-        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
+        - tar -xzvf Test_binaries.tar.gz -C overlay_root
+        - echo "=== Installing e2tools/util-linux if required ==="
+        - |
+          if ! command -v e2cp > /dev/null 2>&1 || ! command -v sfdisk > /dev/null 2>&1; then
+            apt-get update -qq && apt-get install -y -qq e2tools fdisk
+          fi
+        - echo "=== Locating rootfs partition inside $IMG ==="
+        - |
+          set -e
+          sfdisk -d "$IMG" > partlayout.txt
+          cat partlayout.txt
+          PART_LINE=$(grep -i 'name="rootfs"' partlayout.txt || true)
+          if [ -z "$PART_LINE" ]; then
+            echo "FATAL: could not find a partition named rootfs in $IMG"
+            exit 1
+          fi
+          START_SECTOR=$(echo "$PART_LINE" | sed -n 's/.*start=\s*\([0-9]\+\).*/\1/p')
+          SIZE_SECTORS=$(echo "$PART_LINE" | sed -n 's/.*size=\s*\([0-9]\+\).*/\1/p')
+          if [ -z "$START_SECTOR" ] || [ -z "$SIZE_SECTORS" ]; then
+            echo "FATAL: could not parse rootfs partition start/size"
+            exit 1
+          fi
+          echo "$START_SECTOR" > start_sector.txt
+          echo "$SIZE_SECTORS"  > size_sectors.txt
+          echo "rootfs partition: start_sector=$START_SECTOR size_sectors=$SIZE_SECTORS"
+        - echo "=== Extracting rootfs partition from $IMG ==="
+        - dd if="$IMG" of=rootfs.img bs=512 skip=$(cat start_sector.txt) count=$(cat size_sectors.txt)
+        - e2fsck -fy rootfs.img || echo "WARN fsck exit code $?"
+        - echo "=== Baking overlay into extracted rootfs.img ==="
+        - |
+          set -e
+          BASE=overlay_root
+          find "$BASE" -type d | sort | while read -r dir; do
+            reldir="${dir#$BASE}"
+            [ -z "$reldir" ] && continue
+            e2mkdir "rootfs.img:${reldir}" || { echo "FATAL: e2mkdir failed for $reldir"; exit 1; }
+          done
+          find "$BASE" -type f | while read -r src; do
+            reldst="${src#$BASE}"
+            e2cp -p "$src" "rootfs.img:${reldst}" || { echo "FATAL: e2cp failed for $reldst"; exit 1; }
+          done
+        - echo "=== Verifying overlay baked into rootfs.img ==="
+        - |
+          set -e
+          LAVA_DIR=$(ls overlay_root | grep '^lava-' | head -1)
+          if [ -z "$LAVA_DIR" ]; then
+            echo "FATAL: no lava-<job> directory found in overlay"
+            exit 1
+          fi
+          if ! e2ls "rootfs.img:/$LAVA_DIR/environment" > /dev/null 2>&1; then
+            echo "FATAL: /$LAVA_DIR/environment missing from rootfs.img after bake"
+            e2ls "rootfs.img:/$LAVA_DIR/" || true
+            exit 1
+          fi
+          echo "SUCCESS: /$LAVA_DIR/environment confirmed in rootfs.img"
+        - e2fsck -fy rootfs.img || echo "WARN fsck exit code $?"
+        - echo "=== Writing baked rootfs.img back into $IMG ==="
+        - dd if=rootfs.img of="$IMG" bs=512 seek=$(cat start_sector.txt) conv=notrunc
+        - rm -f rootfs.img
         - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
         - echo "PORT=0" >> $IMAGE_PATH/flash.settings
         - cat $IMAGE_PATH/flash.settings
     timeout:
-     minutes: 40
+     minutes: 60
     to: downloads
-{% set flash_image_url = node.artifacts.flash_image %}
-{% set flash_image_path = flash_image_url.split('?')[0] %}
-{% set flash_image_name = flash_image_path.split('/')[-1] %}
 - deploy:
     images:
       image:
         url: 'downloads://{{ flash_image_name }}'
       settings:
         url: downloads://flash.settings
-      overlay:
-        url: downloads://overlay.tar.gz
     timeout:
        minutes: 20
     to: flasher

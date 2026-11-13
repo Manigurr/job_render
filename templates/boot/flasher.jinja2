@@ -6,12 +6,16 @@
         headers:
           Authorization: LAVA_BASIC_AUTH
         url: 'https://storage-lava-hyd.qualcomm.com/Test_binaries.tar.gz'
+      repo:
+        url: 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.tar.gz'
+
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
           - |
             set -e
+
             IMAGE_PATH="$PWD"
             export IMAGE_PATH
 
@@ -20,19 +24,19 @@
             tar -xzvf overlay.tar.gz -C overlay_root
             tar -xzvf Test_binaries.tar.gz -C overlay_root
 
-            command -v curl >/dev/null 2>&1 || {
-              echo "curl is missing from the postprocess Docker image"
-              exit 127
-            }
+            # LAVA downloads this archive before starting the container.
+            if [ ! -f video-test-suite-import.tar.gz ]; then
+              echo "ERROR: video-test-suite-import.tar.gz was not found"
+              ls -la
+              exit 1
+            fi
 
             mkdir -p /tmp/qcom-linux-testkit
-            curl --fail --location --retry 3 \
-              'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.tar.gz' \
-              -o /tmp/qcom-linux-testkit.tar.gz
-            tar -xzf /tmp/qcom-linux-testkit.tar.gz \
+            tar -xzf video-test-suite-import.tar.gz \
               --strip-components=1 \
               -C /tmp/qcom-linux-testkit
 
+            # Place repository contents directly under /opt in the device overlay.
             mkdir -p overlay_root/opt
             cp -a /tmp/qcom-linux-testkit/. overlay_root/opt/
 
@@ -44,6 +48,7 @@
             echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"
             echo "PORT=0" >> "$IMAGE_PATH/flash.settings"
             cat "$IMAGE_PATH/flash.settings"
+
     timeout:
       minutes: 40
     to: downloads

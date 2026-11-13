@@ -12,12 +12,21 @@
         steps:
           - export IMAGE_PATH=$PWD
           - cp overlay*.tar.gz overlay.tar.gz
-          - mkdir overlay_root
+          - mkdir -p overlay_root
           - tar -xzvf overlay.tar.gz -C overlay_root
           - tar -xzvf Test_binaries.tar.gz -C overlay_root
-          - git clone --depth 1 --branch video-test-suite-import https://github.com/Manigurr/qcom-linux-testkit.git /tmp/qcom-linux-testkit
+
+          # Download and extract the video-test-suite-import branch.
+          - command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is not installed in the postprocess Docker image"; exit 1; }
+          - mkdir -p /tmp/qcom-linux-testkit
+          - curl --fail --location --retry 3 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.tar.gz' -o /tmp/qcom-linux-testkit.tar.gz
+          - tar -xzf /tmp/qcom-linux-testkit.tar.gz --strip-components=1 -C /tmp/qcom-linux-testkit
+
+          # Copy repository contents into /opt in the device overlay.
           - mkdir -p overlay_root/opt
           - cp -a /tmp/qcom-linux-testkit/. overlay_root/opt/
+
+          # Rebuild the overlay and configure flashing.
           - tar -cvzf overlay.tar.gz -C overlay_root .
           - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
           - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings

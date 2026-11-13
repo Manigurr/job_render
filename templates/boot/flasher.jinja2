@@ -10,30 +10,40 @@
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
-          - export IMAGE_PATH=$PWD
-          - cp overlay*.tar.gz overlay.tar.gz
-          - mkdir -p overlay_root
-          - tar -xzvf overlay.tar.gz -C overlay_root
-          - tar -xzvf Test_binaries.tar.gz -C overlay_root
+          - |
+            set -e
+            IMAGE_PATH="$PWD"
+            export IMAGE_PATH
 
-          # Download and extract the video-test-suite-import branch.
-          - command -v curl >/dev/null 2>&1 || { echo "ERROR: curl is not installed in the postprocess Docker image"; exit 1; }
-          - mkdir -p /tmp/qcom-linux-testkit
-          - curl --fail --location --retry 3 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.tar.gz' -o /tmp/qcom-linux-testkit.tar.gz
-          - tar -xzf /tmp/qcom-linux-testkit.tar.gz --strip-components=1 -C /tmp/qcom-linux-testkit
+            cp overlay*.tar.gz overlay.tar.gz
+            mkdir -p overlay_root
+            tar -xzvf overlay.tar.gz -C overlay_root
+            tar -xzvf Test_binaries.tar.gz -C overlay_root
 
-          # Copy repository contents into /opt in the device overlay.
-          - mkdir -p overlay_root/opt
-          - cp -a /tmp/qcom-linux-testkit/. overlay_root/opt/
+            command -v curl >/dev/null 2>&1 || {
+              echo "curl is missing from the postprocess Docker image"
+              exit 127
+            }
 
-          # Rebuild the overlay and configure flashing.
-          - tar -cvzf overlay.tar.gz -C overlay_root .
-          - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
-          - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
-          - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
-          - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
-          - echo "PORT=0" >> $IMAGE_PATH/flash.settings
-          - cat $IMAGE_PATH/flash.settings
+            mkdir -p /tmp/qcom-linux-testkit
+            curl --fail --location --retry 3 \
+              'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.tar.gz' \
+              -o /tmp/qcom-linux-testkit.tar.gz
+            tar -xzf /tmp/qcom-linux-testkit.tar.gz \
+              --strip-components=1 \
+              -C /tmp/qcom-linux-testkit
+
+            mkdir -p overlay_root/opt
+            cp -a /tmp/qcom-linux-testkit/. overlay_root/opt/
+
+            tar -cvzf overlay.tar.gz -C overlay_root .
+
+            echo "OVERLAY=overlay.tar.gz" >> "$IMAGE_PATH/flash.settings"
+            echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"
+            echo "ROOTFS_IMAGE=rootfs.img" >> "$IMAGE_PATH/flash.settings"
+            echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"
+            echo "PORT=0" >> "$IMAGE_PATH/flash.settings"
+            cat "$IMAGE_PATH/flash.settings"
     timeout:
       minutes: 40
     to: downloads
@@ -61,8 +71,8 @@
       password_prompt: Password
       password: oelinux123
     prompts:
-      - root@{{ platform_config.name }}
-      - root@(.*):[/~]#
+      - 'root@{{ platform_config.name }}'
+      - 'root@(.*):[/~]#'
     failure_retry: 3
     timeout:
       minutes: 10

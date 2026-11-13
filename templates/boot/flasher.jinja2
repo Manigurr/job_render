@@ -10,24 +10,29 @@
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
-        - export IMAGE_PATH=$PWD
-        - cp overlay*.tar.gz overlay.tar.gz
-        - mkdir overlay_root
-        - tar -xzvf overlay.tar.gz -C overlay_root
-        - tar -xzvf Test_binaries.tar.gz -C overlay_root 
-        - tar -cvzf overlay.tar.gz -C overlay_root .
-        - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
-        - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
-        - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
-        - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
-        - echo "PORT=0" >> $IMAGE_PATH/flash.settings
-        - cat $IMAGE_PATH/flash.settings
+          - export IMAGE_PATH=$PWD
+          - cp overlay*.tar.gz overlay.tar.gz
+          - mkdir overlay_root
+          - tar -xzvf overlay.tar.gz -C overlay_root
+          - tar -xzvf Test_binaries.tar.gz -C overlay_root
+          - git clone --depth 1 --branch video-test-suite-import https://github.com/Manigurr/qcom-linux-testkit.git /tmp/qcom-linux-testkit
+          - mkdir -p overlay_root/opt
+          - cp -a /tmp/qcom-linux-testkit/. overlay_root/opt/
+          - tar -cvzf overlay.tar.gz -C overlay_root .
+          - echo "OVERLAY=overlay.tar.gz" >> $IMAGE_PATH/flash.settings
+          - echo "OVERLAY_PATH=/" >> $IMAGE_PATH/flash.settings
+          - echo "ROOTFS_IMAGE=rootfs.img" >> $IMAGE_PATH/flash.settings
+          - echo "DEVICE_TYPE={{ platform_config.name }}" >> $IMAGE_PATH/flash.settings
+          - echo "PORT=0" >> $IMAGE_PATH/flash.settings
+          - cat $IMAGE_PATH/flash.settings
     timeout:
-     minutes: 40
+      minutes: 40
     to: downloads
+
 {% set flash_image_url = node.artifacts.flash_image %}
 {% set flash_image_path = flash_image_url.split('?')[0] %}
 {% set flash_image_name = flash_image_path.split('/')[-1] %}
+
 - deploy:
     images:
       image:
@@ -37,8 +42,9 @@
       overlay:
         url: downloads://overlay.tar.gz
     timeout:
-       minutes: 20
+      minutes: 20
     to: flasher
+
 - boot:
     auto_login:
       login_prompt: 'login:'
@@ -46,8 +52,8 @@
       password_prompt: Password
       password: oelinux123
     prompts:
-    - root@{{ platform_config.name }}
-    - root@(.*):[/~]#
+      - root@{{ platform_config.name }}
+      - root@(.*):[/~]#
     failure_retry: 3
     timeout:
       minutes: 10

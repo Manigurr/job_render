@@ -19,6 +19,10 @@
             IMAGE_PATH="$PWD"
             export IMAGE_PATH
 
+            echo "========================================"
+            echo "Starting overlay customization"
+            echo "========================================"
+
             # --- Step 1: Extract base overlay ---
             cp overlay*.tar.gz overlay.tar.gz
             mkdir -p overlay_root
@@ -26,8 +30,13 @@
             rm -f overlay.tar.gz
 
             # --- Step 2: Extract Test_binaries into overlay ---
-            tar -xzf Test_binaries.tar.gz -C overlay_root
-            rm -f Test_binaries.tar.gz
+            if [ -f Test_binaries.tar.gz ]; then
+              tar -xzf Test_binaries.tar.gz -C overlay_root
+              rm -f Test_binaries.tar.gz
+            else
+              echo "ERROR: Test_binaries.tar.gz not found"
+              exit 1
+            fi
 
             # --- Step 3: Verify zip was downloaded by LAVA ---
             if [ ! -f video-test-suite-import.zip ]; then
@@ -36,25 +45,63 @@
               exit 1
             fi
 
-            # --- Step 4: Copy zip directly to target filesystem ---
+            # --- Step 4: Verify ADB availability ---
+            echo ""
+            echo "========================================"
+            echo "ADB VALIDATION"
+            echo "========================================"
+
+            if command -v adb >/dev/null 2>&1; then
+              echo "[PASS] adb binary found"
+
+              echo "ADB Location:"
+              which adb
+
+              echo ""
+              echo "ADB Version:"
+              adb version || true
+
+              echo ""
+              echo "ADB Devices:"
+              adb devices || true
+            else
+              echo "[WARNING] adb binary not found in container"
+            fi
+
+            echo "========================================"
+            echo ""
+
+            # --- Step 5: Copy video test suite zip directly ---
             mkdir -p overlay_root/opt/qcom-linux-testkit
+
             cp video-test-suite-import.zip \
               overlay_root/opt/qcom-linux-testkit/
 
+            ls -lh overlay_root/opt/qcom-linux-testkit/
+
             rm -f video-test-suite-import.zip
 
-            # --- Step 5: Repack final overlay ---
+            # --- Step 6: Repack final overlay ---
             tar -czf overlay.tar.gz -C overlay_root .
             rm -rf overlay_root
 
-            # --- Step 6: Write flash.settings ---
-            echo "OVERLAY=overlay.tar.gz"                 >> "$IMAGE_PATH/flash.settings"
-            echo "OVERLAY_PATH=/"                         >> "$IMAGE_PATH/flash.settings"
-            echo "ROOTFS_IMAGE=rootfs.img"                >> "$IMAGE_PATH/flash.settings"
-            echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"
-            echo "PORT=0"                                 >> "$IMAGE_PATH/flash.settings"
+            ls -lh overlay.tar.gz
 
+            # --- Step 7: Generate flash.settings ---
+            cat > "$IMAGE_PATH/flash.settings" <<EOF
+            OVERLAY=overlay.tar.gz
+            OVERLAY_PATH=/
+            ROOTFS_IMAGE=rootfs.img
+            DEVICE_TYPE={{ platform_config.name }}
+            PORT=0
+            EOF
+
+            echo ""
+            echo "Generated flash.settings:"
             cat "$IMAGE_PATH/flash.settings"
+
+            echo ""
+            echo "Overlay customization completed successfully"
 
     timeout:
       minutes: 40

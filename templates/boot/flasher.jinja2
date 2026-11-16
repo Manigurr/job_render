@@ -7,7 +7,7 @@
           Authorization: LAVA_BASIC_AUTH
         url: 'https://storage-lava-hyd.qualcomm.com/Test_binaries.tar.gz'
       repo:
-        url: 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.tar.gz'
+        url: 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.zip'
 
     postprocess:
       docker:
@@ -19,34 +19,41 @@
             IMAGE_PATH="$PWD"
             export IMAGE_PATH
 
+            # --- Step 1: Extract base overlay ---
             cp overlay*.tar.gz overlay.tar.gz
             mkdir -p overlay_root
-            tar -xzvf overlay.tar.gz -C overlay_root
-            tar -xzvf Test_binaries.tar.gz -C overlay_root
+            tar -xzf overlay.tar.gz -C overlay_root
+            rm -f overlay.tar.gz
 
-            # LAVA downloads this archive before starting the container.
-            if [ ! -f video-test-suite-import.tar.gz ]; then
-              echo "ERROR: video-test-suite-import.tar.gz was not found"
+            # --- Step 2: Extract Test_binaries into overlay ---
+            tar -xzf Test_binaries.tar.gz -C overlay_root
+            rm -f Test_binaries.tar.gz
+
+            # --- Step 3: Verify zip was downloaded by LAVA ---
+            if [ ! -f video-test-suite-import.zip ]; then
+              echo "ERROR: video-test-suite-import.zip was not found"
               ls -la
               exit 1
             fi
 
-            mkdir -p /tmp/qcom-linux-testkit
-            tar -xzf video-test-suite-import.tar.gz \
-              --strip-components=1 \
-              -C /tmp/qcom-linux-testkit
+            # --- Step 4: Copy zip directly to target filesystem ---
+            mkdir -p overlay_root/opt/qcom-linux-testkit
+            cp video-test-suite-import.zip \
+              overlay_root/opt/qcom-linux-testkit/
 
-            # Place repository contents directly under /opt in the device overlay.
-            mkdir -p overlay_root/opt
-            cp -a /tmp/qcom-linux-testkit/. overlay_root/opt/
+            rm -f video-test-suite-import.zip
 
-            tar -cvzf overlay.tar.gz -C overlay_root .
+            # --- Step 5: Repack final overlay ---
+            tar -czf overlay.tar.gz -C overlay_root .
+            rm -rf overlay_root
 
-            echo "OVERLAY=overlay.tar.gz" >> "$IMAGE_PATH/flash.settings"
-            echo "OVERLAY_PATH=/" >> "$IMAGE_PATH/flash.settings"
-            echo "ROOTFS_IMAGE=rootfs.img" >> "$IMAGE_PATH/flash.settings"
+            # --- Step 6: Write flash.settings ---
+            echo "OVERLAY=overlay.tar.gz"                 >> "$IMAGE_PATH/flash.settings"
+            echo "OVERLAY_PATH=/"                         >> "$IMAGE_PATH/flash.settings"
+            echo "ROOTFS_IMAGE=rootfs.img"                >> "$IMAGE_PATH/flash.settings"
             echo "DEVICE_TYPE={{ platform_config.name }}" >> "$IMAGE_PATH/flash.settings"
-            echo "PORT=0" >> "$IMAGE_PATH/flash.settings"
+            echo "PORT=0"                                 >> "$IMAGE_PATH/flash.settings"
+
             cat "$IMAGE_PATH/flash.settings"
 
     timeout:

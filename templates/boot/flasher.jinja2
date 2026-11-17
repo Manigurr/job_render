@@ -11,9 +11,6 @@
       repo:
         url: 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.zip'
 
-      adb:
-        url: 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip'
-
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
@@ -28,9 +25,7 @@
             echo "Starting overlay customization"
             echo "========================================"
 
-            # --------------------------------------------------
-            # Extract overlay
-            # --------------------------------------------------
+            # Extract base overlay
             cp overlay*.tar.gz overlay.tar.gz
 
             mkdir -p overlay_root
@@ -39,9 +34,7 @@
 
             rm -f overlay.tar.gz
 
-            # --------------------------------------------------
             # Extract Test Binaries
-            # --------------------------------------------------
             if [ -f Test_binaries.tar.gz ]; then
               tar -xzf Test_binaries.tar.gz -C overlay_root
               rm -f Test_binaries.tar.gz
@@ -50,65 +43,47 @@
               exit 1
             fi
 
-            # --------------------------------------------------
-            # Verify Video Test Suite
-            # --------------------------------------------------
+            # Verify repository package
             if [ ! -f video-test-suite-import.zip ]; then
               echo "ERROR: video-test-suite-import.zip not found"
               ls -la
               exit 1
             fi
 
+            echo "Found repository package:"
             ls -lh video-test-suite-import.zip
 
-            # --------------------------------------------------
-            # Verify Platform Tools Package
-            # --------------------------------------------------
-            if [ ! -f platform-tools-latest-linux.zip ]; then
-              echo "ERROR: platform-tools-latest-linux.zip not found"
-              ls -la
-              exit 1
-            fi
-
-            echo ""
-            echo "ADB package downloaded successfully"
-            ls -lh platform-tools-latest-linux.zip
-
-            # --------------------------------------------------
-            # Extract Platform Tools
-            # --------------------------------------------------
-            unzip -qo platform-tools-latest-linux.zip
-
-            export PATH="$PWD/platform-tools:$PATH"
-
+            # Optional container debug
             echo ""
             echo "========================================"
-            echo "ADB VALIDATION"
+            echo "CONTAINER INFORMATION"
             echo "========================================"
 
-            ls -l platform-tools/ || true
+            cat /etc/os-release || true
 
-            ./platform-tools/adb version || true
-
-            ./platform-tools/adb devices || true
+            which apt-get || true
+            which apk || true
+            which yum || true
+            which dnf || true
+            which wget || true
+            which curl || true
+            which unzip || true
 
             echo "========================================"
 
-            # --------------------------------------------------
             # Copy Video Test Suite
-            # --------------------------------------------------
             mkdir -p overlay_root/opt/qcom-linux-testkit
 
             cp video-test-suite-import.zip \
               overlay_root/opt/qcom-linux-testkit/
 
+            echo ""
+            echo "Contents copied to overlay:"
             ls -lh overlay_root/opt/qcom-linux-testkit/
 
             rm -f video-test-suite-import.zip
 
-            # --------------------------------------------------
-            # Repack Overlay
-            # --------------------------------------------------
+            # Repack overlay
             tar -czf overlay.tar.gz -C overlay_root .
 
             rm -rf overlay_root
@@ -117,9 +92,7 @@
             echo "Generated overlay:"
             ls -lh overlay.tar.gz
 
-            # --------------------------------------------------
             # Generate flash.settings
-            # --------------------------------------------------
             cat > "$IMAGE_PATH/flash.settings" <<EOF
             OVERLAY=overlay.tar.gz
             OVERLAY_PATH=/
@@ -148,8 +121,10 @@
     images:
       image:
         url: 'downloads://{{ flash_image_name }}'
+
       settings:
         url: downloads://flash.settings
+
       overlay:
         url: downloads://overlay.tar.gz
 
@@ -177,6 +152,7 @@
     timeouts:
       bootloader-commands:
         minutes: 3
+
       auto-login-action:
         minutes: 10
 

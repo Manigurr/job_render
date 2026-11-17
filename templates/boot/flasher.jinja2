@@ -2,10 +2,12 @@
     images:
       image:
         url: '{{ node.artifacts.flash_image }}'
+
       test:
         headers:
           Authorization: LAVA_BASIC_AUTH
         url: 'https://storage-lava-hyd.qualcomm.com/Test_binaries.tar.gz'
+
       repo:
         url: 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.zip'
 
@@ -14,7 +16,7 @@
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
           - |
-            set -e
+            set -euxo pipefail
 
             IMAGE_PATH="$PWD"
             export IMAGE_PATH
@@ -23,13 +25,20 @@
             echo "Starting overlay customization"
             echo "========================================"
 
-            # --- Step 1: Extract base overlay ---
+            # --------------------------------------------------
+            # Extract overlay
+            # --------------------------------------------------
             cp overlay*.tar.gz overlay.tar.gz
+
             mkdir -p overlay_root
+
             tar -xzf overlay.tar.gz -C overlay_root
+
             rm -f overlay.tar.gz
 
-            # --- Step 2: Extract Test_binaries into overlay ---
+            # --------------------------------------------------
+            # Extract test binaries
+            # --------------------------------------------------
             if [ -f Test_binaries.tar.gz ]; then
               tar -xzf Test_binaries.tar.gz -C overlay_root
               rm -f Test_binaries.tar.gz
@@ -38,56 +47,88 @@
               exit 1
             fi
 
-            # --- Step 3: Verify zip was downloaded by LAVA ---
+            # --------------------------------------------------
+            # Verify repository zip
+            # --------------------------------------------------
             if [ ! -f video-test-suite-import.zip ]; then
-              echo "ERROR: video-test-suite-import.zip was not found"
+              echo "ERROR: video-test-suite-import.zip not found"
               ls -la
               exit 1
             fi
 
-            # --- Step 4: Verify ADB availability ---
+            # --------------------------------------------------
+            # Install Android Platform Tools (ADB)
+            # Container only
+            # --------------------------------------------------
+            echo ""
+            echo "========================================"
+            echo "Installing Android Platform Tools"
+            echo "========================================"
+
+            cd /tmp
+
+            wget -q \
+              https://dl.google.com/android/repository/platform-tools-latest-linux.zip \
+              -O platform-tools-latest-linux.zip
+
+            unzip -qo platform-tools-latest-linux.zip
+
+            export PATH="/tmp/platform-tools:$PATH"
+
+            ln -sf /tmp/platform-tools/adb /usr/local/bin/adb
+            ln -sf /tmp/platform-tools/fastboot /usr/local/bin/fastboot
+
+            echo ""
+            echo "ADB Installed Successfully"
+
+            # --------------------------------------------------
+            # Validate ADB
+            # --------------------------------------------------
             echo ""
             echo "========================================"
             echo "ADB VALIDATION"
             echo "========================================"
 
-            if command -v adb >/dev/null 2>&1; then
-              echo "[PASS] adb binary found"
+            which adb
 
-              echo "ADB Location:"
-              which adb
+            adb version
 
-              echo ""
-              echo "ADB Version:"
-              adb version || true
+            fastboot --version || true
 
-              echo ""
-              echo "ADB Devices:"
-              adb devices || true
-            else
-              echo "[WARNING] adb binary not found in container"
-            fi
+            adb devices || true
 
             echo "========================================"
-            echo ""
 
-            # --- Step 5: Copy video test suite zip directly ---
+            cd "$IMAGE_PATH"
+
+            # --------------------------------------------------
+            # Copy video test suite zip
+            # --------------------------------------------------
             mkdir -p overlay_root/opt/qcom-linux-testkit
 
             cp video-test-suite-import.zip \
               overlay_root/opt/qcom-linux-testkit/
 
+            echo ""
+            echo "Contents copied to overlay:"
             ls -lh overlay_root/opt/qcom-linux-testkit/
 
             rm -f video-test-suite-import.zip
 
-            # --- Step 6: Repack final overlay ---
+            # --------------------------------------------------
+            # Repack overlay
+            # --------------------------------------------------
             tar -czf overlay.tar.gz -C overlay_root .
+
             rm -rf overlay_root
 
+            echo ""
+            echo "Generated overlay:"
             ls -lh overlay.tar.gz
 
-            # --- Step 7: Generate flash.settings ---
+            # --------------------------------------------------
+            # Generate flash.settings
+            # --------------------------------------------------
             cat > "$IMAGE_PATH/flash.settings" <<EOF
             OVERLAY=overlay.tar.gz
             OVERLAY_PATH=/
@@ -105,6 +146,7 @@
 
     timeout:
       minutes: 40
+
     to: downloads
 
 {% set flash_image_url = node.artifacts.flash_image %}
@@ -119,8 +161,10 @@
         url: downloads://flash.settings
       overlay:
         url: downloads://overlay.tar.gz
+
     timeout:
       minutes: 20
+
     to: flasher
 
 - boot:
@@ -129,15 +173,20 @@
       username: root
       password_prompt: Password
       password: oelinux123
+
     prompts:
       - 'root@{{ platform_config.name }}'
       - 'root@(.*):[/~]#'
+
     failure_retry: 3
+
     timeout:
       minutes: 10
+
     timeouts:
       bootloader-commands:
         minutes: 3
       auto-login-action:
         minutes: 10
+
     method: minimal

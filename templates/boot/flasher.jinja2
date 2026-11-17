@@ -160,4 +160,39 @@
 - deploy:
     images:
       image:
-        url: '
+        url: 'downloads://{{ flash_image_name }}'
+
+      settings:
+        url: downloads://flash.settings
+
+      overlay:
+        url: downloads://overlay.tar.gz
+
+    timeout:
+      minutes: 20
+
+    to: flasher
+
+- boot:
+    auto_login:
+      login_prompt: 'login:'
+      username: root
+      password_prompt: Password
+      password: oelinux123
+
+    prompts:
+      - 'root@{{ platform_config.name }}'
+      - 'root@(.*):[/~]#'
+
+    failure_retry: 3
+
+    timeout:
+      minutes: 10
+
+    timeouts:
+      bootloader-commands:
+        minutes: 3
+      auto-login-action:
+        minutes: 10
+
+    method: minimal

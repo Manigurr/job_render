@@ -11,12 +11,15 @@
       repo:
         url: 'https://github.com/Manigurr/qcom-linux-testkit/archive/refs/heads/video-test-suite-import.zip'
 
+      adb:
+        url: 'https://dl.google.com/android/repository/platform-tools-latest-linux.zip'
+
     postprocess:
       docker:
         image: ghcr.io/mwasilew/docker-mkbootimage:master
         steps:
           - |
-            set -euxo pipefail
+            set -exu
 
             IMAGE_PATH="$PWD"
             export IMAGE_PATH
@@ -37,7 +40,7 @@
             rm -f overlay.tar.gz
 
             # --------------------------------------------------
-            # Extract test binaries
+            # Extract Test Binaries
             # --------------------------------------------------
             if [ -f Test_binaries.tar.gz ]; then
               tar -xzf Test_binaries.tar.gz -C overlay_root
@@ -48,7 +51,7 @@
             fi
 
             # --------------------------------------------------
-            # Verify repository zip
+            # Verify Video Test Suite
             # --------------------------------------------------
             if [ ! -f video-test-suite-import.zip ]; then
               echo "ERROR: video-test-suite-import.zip not found"
@@ -56,67 +59,55 @@
               exit 1
             fi
 
+            ls -lh video-test-suite-import.zip
+
             # --------------------------------------------------
-            # Install Android Platform Tools (ADB)
-            # Container only
+            # Verify Platform Tools Package
             # --------------------------------------------------
+            if [ ! -f platform-tools-latest-linux.zip ]; then
+              echo "ERROR: platform-tools-latest-linux.zip not found"
+              ls -la
+              exit 1
+            fi
+
             echo ""
-            echo "========================================"
-            echo "Installing Android Platform Tools"
-            echo "========================================"
+            echo "ADB package downloaded successfully"
+            ls -lh platform-tools-latest-linux.zip
 
-            cd /tmp
-
-            wget -q \
-              https://dl.google.com/android/repository/platform-tools-latest-linux.zip \
-              -O platform-tools-latest-linux.zip
-
+            # --------------------------------------------------
+            # Extract Platform Tools
+            # --------------------------------------------------
             unzip -qo platform-tools-latest-linux.zip
 
-            export PATH="/tmp/platform-tools:$PATH"
+            export PATH="$PWD/platform-tools:$PATH"
 
-            ln -sf /tmp/platform-tools/adb /usr/local/bin/adb
-            ln -sf /tmp/platform-tools/fastboot /usr/local/bin/fastboot
-
-            echo ""
-            echo "ADB Installed Successfully"
-
-            # --------------------------------------------------
-            # Validate ADB
-            # --------------------------------------------------
             echo ""
             echo "========================================"
             echo "ADB VALIDATION"
             echo "========================================"
 
-            which adb
+            ls -l platform-tools/ || true
 
-            adb version
+            ./platform-tools/adb version || true
 
-            fastboot --version || true
-
-            adb devices || true
+            ./platform-tools/adb devices || true
 
             echo "========================================"
 
-            cd "$IMAGE_PATH"
-
             # --------------------------------------------------
-            # Copy video test suite zip
+            # Copy Video Test Suite
             # --------------------------------------------------
             mkdir -p overlay_root/opt/qcom-linux-testkit
 
             cp video-test-suite-import.zip \
               overlay_root/opt/qcom-linux-testkit/
 
-            echo ""
-            echo "Contents copied to overlay:"
             ls -lh overlay_root/opt/qcom-linux-testkit/
 
             rm -f video-test-suite-import.zip
 
             # --------------------------------------------------
-            # Repack overlay
+            # Repack Overlay
             # --------------------------------------------------
             tar -czf overlay.tar.gz -C overlay_root .
 

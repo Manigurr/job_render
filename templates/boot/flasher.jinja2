@@ -25,7 +25,9 @@
             echo "Starting overlay customization"
             echo "========================================"
 
-            # Extract base overlay
+            # --------------------------------------------------
+            # Extract existing overlay
+            # --------------------------------------------------
             cp overlay*.tar.gz overlay.tar.gz
 
             mkdir -p overlay_root
@@ -34,7 +36,9 @@
 
             rm -f overlay.tar.gz
 
+            # --------------------------------------------------
             # Extract Test Binaries
+            # --------------------------------------------------
             if [ -f Test_binaries.tar.gz ]; then
               tar -xzf Test_binaries.tar.gz -C overlay_root
               rm -f Test_binaries.tar.gz
@@ -43,47 +47,81 @@
               exit 1
             fi
 
-            # Verify repository package
+            # --------------------------------------------------
+            # Verify repo package exists
+            # --------------------------------------------------
             if [ ! -f video-test-suite-import.zip ]; then
               echo "ERROR: video-test-suite-import.zip not found"
               ls -la
               exit 1
             fi
 
-            echo "Found repository package:"
+            echo ""
+            echo "Repository package available:"
             ls -lh video-test-suite-import.zip
 
-            # Optional container debug
+            # --------------------------------------------------
+            # Install ADB in Container
+            # --------------------------------------------------
             echo ""
             echo "========================================"
-            echo "CONTAINER INFORMATION"
+            echo "ADB INSTALLATION"
             echo "========================================"
 
             cat /etc/os-release || true
 
-            which apt-get || true
-            which apk || true
-            which yum || true
-            which dnf || true
-            which wget || true
-            which curl || true
-            which unzip || true
+            if command -v apt-get >/dev/null 2>&1; then
+              echo "Detected Debian/Ubuntu"
+
+              apt-get update
+              apt-get install -y android-sdk-platform-tools
+
+            elif command -v apk >/dev/null 2>&1; then
+              echo "Detected Alpine"
+
+              apk add --no-cache android-tools
+
+            elif command -v dnf >/dev/null 2>&1; then
+              echo "Detected Fedora/RHEL"
+
+              dnf install -y android-tools
+
+            elif command -v yum >/dev/null 2>&1; then
+              echo "Detected CentOS/RHEL"
+
+              yum install -y android-tools
+
+            else
+              echo "WARNING: No supported package manager found"
+            fi
+
+            echo ""
+            echo "========================================"
+            echo "ADB VALIDATION"
+            echo "========================================"
+
+            which adb || true
+
+            adb version || true
+
+            adb devices || true
 
             echo "========================================"
 
-            # Copy Video Test Suite
-            mkdir -p overlay_root/opt/qcom-linux-testkit
-
-            cp video-test-suite-import.zip \
-              overlay_root/opt/qcom-linux-testkit/
-
             echo ""
-            echo "Contents copied to overlay:"
-            ls -lh overlay_root/opt/qcom-linux-testkit/
+            echo "Overlay content size:"
+            du -sh overlay_root || true
 
-            rm -f video-test-suite-import.zip
+            # --------------------------------------------------
+            # DO NOT COPY REPO ZIP INTO ROOTFS
+            # --------------------------------------------------
+            # Keeping video-test-suite-import.zip only inside
+            # the postprocess container. Copying it into the
+            # overlay causes rootfs.img to run out of space.
 
-            # Repack overlay
+            # --------------------------------------------------
+            # Repack Overlay
+            # --------------------------------------------------
             tar -czf overlay.tar.gz -C overlay_root .
 
             rm -rf overlay_root
@@ -92,7 +130,9 @@
             echo "Generated overlay:"
             ls -lh overlay.tar.gz
 
+            # --------------------------------------------------
             # Generate flash.settings
+            # --------------------------------------------------
             cat > "$IMAGE_PATH/flash.settings" <<EOF
             OVERLAY=overlay.tar.gz
             OVERLAY_PATH=/
@@ -120,40 +160,4 @@
 - deploy:
     images:
       image:
-        url: 'downloads://{{ flash_image_name }}'
-
-      settings:
-        url: downloads://flash.settings
-
-      overlay:
-        url: downloads://overlay.tar.gz
-
-    timeout:
-      minutes: 20
-
-    to: flasher
-
-- boot:
-    auto_login:
-      login_prompt: 'login:'
-      username: root
-      password_prompt: Password
-      password: oelinux123
-
-    prompts:
-      - 'root@{{ platform_config.name }}'
-      - 'root@(.*):[/~]#'
-
-    failure_retry: 3
-
-    timeout:
-      minutes: 10
-
-    timeouts:
-      bootloader-commands:
-        minutes: 3
-
-      auto-login-action:
-        minutes: 10
-
-    method: minimal
+        url: '
